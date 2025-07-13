@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(./node_modules/.bin/tsc)",
-      "Bash(./node_modules/.bin/vite:*)"
+      "Bash(./node_modules/.bin/vite:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
     ],
     "deny": []
   }
