@@ -1,0 +1,135 @@
+@import '../styles/design-system.css';
+
+.header-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-md);
+  animation: var(--animation-slide-down);
+}
+
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.header-logo {
+  width: 50px;
+  height: auto;
+  max-height: 35px;
+  object-fit: contain;
+  filter: drop-shadow(var(--shadow-sm));
+  transition: var(--transition-transform);
+  animation: logo-entrance 0.6s ease-out;
+  /* Ensure sharp rendering */
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+@keyframes logo-entrance {
+  from {
+    opacity: 0;
+    transform: scale(0.8) rotate(-10deg);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) rotate(0);
+  }
+}
+
+.header-brand:hover .header-logo {
+  transform: scale(1.05) rotate(3deg);
+  box-shadow: var(--shadow-md);
+}
+
+.header-title {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  letter-spacing: -0.5px;
+  background: var(--gradient-primary);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  position: relative;
+}
+
+/* Subtle text animation on hover */
+.header-brand:hover .header-title {
+  background-position: 100% 50%;
+  background-size: 200% 100%;
+}
+
+/* Debug toggle with enhanced styling */
+.debug-toggle {
+  background: var(--color-bg-secondary);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--font-size-base);
+  cursor: pointer;
+  transition: var(--transition-all);
+  position: relative;
+  overflow: hidden;
+}
+
+.debug-toggle::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  background: var(--color-primary-alpha);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  transition: width 0.3s, height 0.3s;
+}
+
+.debug-toggle:hover::before {
+  width: 100%;
+  height: 100%;
+}
+
+.debug-toggle:hover {
+  background-color: var(--color-bg-tertiary);
+  border-color: var(--color-primary);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.debug-toggle:active {
+  transform: translateY(0);
+  box-shadow: var(--shadow-xs);
+}
+
+.debug-toggle[aria-pressed="true"] {
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+  color: white;
+}
+
+.debug-toggle[aria-pressed="true"]:hover {
+  background-color: var(--color-primary-dark);
+  border-color: var(--color-primary-dark);
+}
+
+/* Mobile responsive */
+@media (max-width: 480px) {
+  .header-brand {
+    gap: var(--space-sm);
+  }
+  
+  .header-logo {
+    width: 32px;
+    height: 32px;
+  }
+  
+  .header-title {
+    font-size: var(--font-size-lg);
+  }
+}

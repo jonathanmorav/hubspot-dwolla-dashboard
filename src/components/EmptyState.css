@@ -1,0 +1,150 @@
+@import '../styles/design-system.css';
+
+/* Empty state animations */
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.empty-state {
+  text-align: center;
+  padding: var(--space-xl) var(--space-lg);
+  animation: fade-in-up 0.6s ease-out;
+  position: relative;
+}
+
+/* Decorative background pattern */
+.empty-state::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 200px;
+  height: 200px;
+  background: radial-gradient(
+    circle,
+    var(--color-primary-alpha) 0%,
+    transparent 70%
+  );
+  opacity: 0.3;
+  border-radius: 50%;
+  filter: blur(40px);
+  animation: var(--animation-pulse);
+  pointer-events: none;
+}
+
+.empty-state-icon {
+  font-size: 64px;
+  margin-bottom: var(--space-lg);
+  opacity: 0.8;
+  display: inline-block;
+  animation: float 3s ease-in-out infinite;
+  animation-delay: 0.2s;
+  position: relative;
+  z-index: 1;
+}
+
+/* Add subtle shadow to icon */
+.empty-state-icon::after {
+  content: '';
+  position: absolute;
+  bottom: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60%;
+  height: 10px;
+  background: radial-gradient(
+    ellipse,
+    rgba(0, 0, 0, 0.1) 0%,
+    transparent 70%
+  );
+  filter: blur(4px);
+  animation: float 3s ease-in-out infinite reverse;
+  animation-delay: 0.2s;
+}
+
+.empty-state-title {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  margin: 0 0 var(--space-sm) 0;
+  letter-spacing: -0.5px;
+  animation: fade-in-up 0.6s ease-out;
+  animation-delay: 0.1s;
+  animation-fill-mode: both;
+  position: relative;
+  z-index: 1;
+}
+
+.empty-state-description {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  margin: 0 auto;
+  max-width: 320px;
+  line-height: var(--line-height-relaxed);
+  animation: fade-in-up 0.6s ease-out;
+  animation-delay: 0.2s;
+  animation-fill-mode: both;
+  position: relative;
+  z-index: 1;
+}
+
+/* Interactive hover effect */
+.empty-state:hover .empty-state-icon {
+  animation-duration: 2s;
+  transform: scale(1.05);
+}
+
+.empty-state:hover::before {
+  transform: translate(-50%, -50%) scale(1.1);
+  opacity: 0.4;
+}
+
+/* Different empty state variations */
+.empty-state.empty-state--search .empty-state-icon {
+  color: var(--color-primary);
+}
+
+.empty-state.empty-state--error .empty-state-icon {
+  color: var(--color-error);
+  animation: none;
+}
+
+.empty-state.empty-state--success .empty-state-icon {
+  color: var(--color-success);
+}
+
+/* Responsive adjustments */
+@media (max-width: 480px) {
+  .empty-state {
+    padding: var(--space-lg) var(--space-md);
+  }
+  
+  .empty-state-icon {
+    font-size: 48px;
+  }
+  
+  .empty-state-title {
+    font-size: var(--font-size-lg);
+  }
+  
+  .empty-state-description {
+    font-size: var(--font-size-xs);
+  }
+}
