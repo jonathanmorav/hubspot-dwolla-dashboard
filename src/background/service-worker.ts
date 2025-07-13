@@ -161,8 +161,12 @@ async function handleAuthentication(provider: 'hubspot' | 'dwolla') {
 
 async function authenticateHubSpot() {
   // HubSpot OAuth configuration
-  // These values will be replaced during build time by Vite
-  const clientId = import.meta.env?.VITE_HUBSPOT_CLIENT_ID || 'YOUR_HUBSPOT_CLIENT_ID'
+  const clientId = import.meta.env?.VITE_HUBSPOT_CLIENT_ID
+  
+  if (!clientId) {
+    throw new Error('HubSpot client ID not configured. Please set VITE_HUBSPOT_CLIENT_ID environment variable.')
+  }
+  
   const redirectUri = chrome.identity.getRedirectURL()
   const scope = 'crm.objects.contacts.read crm.objects.companies.read'
   
@@ -205,8 +209,12 @@ async function authenticateHubSpot() {
 
 async function authenticateDwolla() {
   // Dwolla OAuth configuration
-  // These values will be replaced during build time by Vite
-  const clientId = import.meta.env?.VITE_DWOLLA_CLIENT_ID || 'YOUR_DWOLLA_CLIENT_ID'
+  const clientId = import.meta.env?.VITE_DWOLLA_CLIENT_ID
+  
+  if (!clientId) {
+    throw new Error('Dwolla client ID not configured. Please set VITE_DWOLLA_CLIENT_ID environment variable.')
+  }
+  
   const redirectUri = chrome.identity.getRedirectURL()
   const scope = 'Customers:read Transfers:read'
   const environment = import.meta.env?.VITE_DWOLLA_ENVIRONMENT || 'sandbox'
@@ -325,10 +333,40 @@ async function handleSearch(query: string) {
       resultCount: hubspotData.contacts.length + hubspotData.companies.length + dwollaData.customers.length
     })
 
+    // Import correlation service
+    const { dataCorrelationService } = await import('../utils/dataCorrelation')
+    
+    // Correlate the data
+    const correlationTimer = logger.startTimer('data_correlation')
+    const correlatedData = dataCorrelationService.correlateSearchResults(
+      hubspotData.companies,
+      hubspotData.contacts,
+      dwollaData.customers,
+      dwollaData.transfers
+    )
+    const correlationDuration = correlationTimer.end()
+    
+    // Calculate summary statistics
+    const summary = {
+      totalResults: correlatedData.length,
+      linkedAccounts: correlatedData.filter(d => d.correlation.isLinked).length,
+      unlinkedHubSpot: correlatedData.filter(d => d.hubspot.company && !d.dwolla.customer).length,
+      unlinkedDwolla: correlatedData.filter(d => !d.hubspot.company && d.dwolla.customer).length,
+      inconsistencyCount: correlatedData.reduce((count, d) => count + d.correlation.inconsistencies.length, 0)
+    }
+    
+    logger.info('Data correlation completed', {
+      requestId,
+      correlationDuration: Math.round(correlationDuration),
+      summary
+    })
+
     return {
       success: true,
       hubspot: hubspotData,
-      dwolla: dwollaData
+      dwolla: dwollaData,
+      correlatedData,
+      summary
     }
   } catch (error) {
     const duration = timer.end()

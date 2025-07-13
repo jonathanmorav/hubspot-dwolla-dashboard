@@ -3,6 +3,12 @@
 import { logger, generateRequestId, LogTimer } from './logger'
 import { rateLimiter, RateLimitError } from './rateLimiter'
 import { getAccessToken } from './auth'
+import { 
+  HubSpotContactSearchResponse, 
+  HubSpotCompanySearchResponse,
+  DwollaCustomerSearchResponse,
+  DwollaTransferSearchResponse 
+} from '../types'
 
 // Types
 export interface ApiConfig {
@@ -374,7 +380,7 @@ export class EnhancedHubSpotClient extends EnhancedApiClient {
     })
   }
 
-  async searchContacts(email: string): Promise<any> {
+  async searchContacts(email: string): Promise<HubSpotContactSearchResponse> {
     const searchRequest = {
       filterGroups: [{
         filters: [{
@@ -386,13 +392,13 @@ export class EnhancedHubSpotClient extends EnhancedApiClient {
       properties: ['firstname', 'lastname', 'email', 'phone', 'company']
     }
 
-    return this.request('/crm/v3/objects/contacts/search', {
+    return this.request<HubSpotContactSearchResponse>('/crm/v3/objects/contacts/search', {
       method: 'POST',
       body: JSON.stringify(searchRequest)
     })
   }
 
-  async searchCompanies(query: string): Promise<any> {
+  async searchCompanies(query: string): Promise<HubSpotCompanySearchResponse> {
     const searchRequest = {
       filterGroups: [{
         filters: [{
@@ -405,13 +411,13 @@ export class EnhancedHubSpotClient extends EnhancedApiClient {
       limit: 100
     }
 
-    return this.request('/crm/v3/objects/companies/search', {
+    return this.request<HubSpotCompanySearchResponse>('/crm/v3/objects/companies/search', {
       method: 'POST',
       body: JSON.stringify(searchRequest)
     })
   }
 
-  async searchByName(name: string): Promise<any> {
+  async searchByName(name: string): Promise<{ contacts: any[], companies: any[] }> {
     // Search both contacts and companies by name
     const [contacts, companies] = await Promise.allSettled([
       this.searchContactsByName(name),
@@ -473,20 +479,20 @@ export class EnhancedDwollaClient extends EnhancedApiClient {
     })
   }
 
-  async searchCustomers(email: string): Promise<any> {
-    return this.request(`/customers?email=${encodeURIComponent(email)}&limit=100`)
+  async searchCustomers(email: string): Promise<DwollaCustomerSearchResponse> {
+    return this.request<DwollaCustomerSearchResponse>(`/customers?email=${encodeURIComponent(email)}&limit=100`)
   }
 
-  async searchCustomersByName(name: string): Promise<any> {
+  async searchCustomersByName(name: string): Promise<DwollaCustomerSearchResponse> {
     // Dwolla doesn't have direct name search, so we'll need to filter results
-    const allCustomers: any = await this.request('/customers?limit=200')
+    const allCustomers = await this.request<DwollaCustomerSearchResponse>('/customers?limit=200')
     
     if (!allCustomers._embedded?.customers) {
       return { _embedded: { customers: [] } }
     }
 
     const nameLower = name.toLowerCase()
-    const filtered = allCustomers._embedded.customers.filter((customer: any) => {
+    const filtered = allCustomers._embedded.customers.filter((customer) => {
       const fullName = `${customer.firstName} ${customer.lastName}`.toLowerCase()
       const businessName = customer.businessName?.toLowerCase() || ''
       return fullName.includes(nameLower) || businessName.includes(nameLower)
@@ -495,8 +501,8 @@ export class EnhancedDwollaClient extends EnhancedApiClient {
     return { _embedded: { customers: filtered } }
   }
 
-  async getCustomerTransfers(customerId: string, limit = 50): Promise<any> {
-    return this.request(`/customers/${customerId}/transfers?limit=${limit}`)
+  async getCustomerTransfers(customerId: string, limit = 50): Promise<DwollaTransferSearchResponse> {
+    return this.request<DwollaTransferSearchResponse>(`/customers/${customerId}/transfers?limit=${limit}`)
   }
 
   async getTransferById(id: string): Promise<any> {

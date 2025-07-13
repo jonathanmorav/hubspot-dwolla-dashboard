@@ -1,6 +1,6 @@
 // Debug panel for development - view logs and performance metrics
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { LogEntry, LogLevel } from '../utils/logger'
 import './DebugPanel.css'
 
@@ -16,23 +16,7 @@ export function DebugPanel({ show, onClose }: DebugPanelProps) {
   const [rateLimit, setRateLimit] = useState<any>(null)
   const [performance, setPerformance] = useState<any[]>([])
 
-  useEffect(() => {
-    if (show) {
-      loadLogs()
-      loadRateLimit()
-      loadPerformance()
-    }
-
-    if (show && autoRefresh) {
-      const interval = setInterval(() => {
-        loadLogs()
-        loadRateLimit()
-      }, 2000)
-      return () => clearInterval(interval)
-    }
-  }, [show, autoRefresh, filter])
-
-  const loadLogs = async () => {
+  const loadLogs = useCallback(async () => {
     try {
       const response = await chrome.runtime.sendMessage({
         type: 'GET_LOGS',
@@ -44,9 +28,9 @@ export function DebugPanel({ show, onClose }: DebugPanelProps) {
     } catch (error) {
       console.error('Failed to load logs:', error)
     }
-  }
+  }, [filter])
 
-  const loadRateLimit = async () => {
+  const loadRateLimit = useCallback(async () => {
     try {
       const response = await chrome.runtime.sendMessage({
         type: 'GET_RATE_LIMIT_STATUS'
@@ -57,9 +41,9 @@ export function DebugPanel({ show, onClose }: DebugPanelProps) {
     } catch (error) {
       console.error('Failed to load rate limit:', error)
     }
-  }
+  }, [])
 
-  const loadPerformance = async () => {
+  const loadPerformance = useCallback(async () => {
     try {
       const response = await chrome.runtime.sendMessage({
         type: 'GET_PERFORMANCE_METRICS'
@@ -70,7 +54,7 @@ export function DebugPanel({ show, onClose }: DebugPanelProps) {
     } catch (error) {
       console.error('Failed to load performance:', error)
     }
-  }
+  }, [])
 
   const clearLogs = async () => {
     try {
@@ -90,6 +74,22 @@ export function DebugPanel({ show, onClose }: DebugPanelProps) {
     a.click()
     URL.revokeObjectURL(url)
   }
+
+  useEffect(() => {
+    if (show) {
+      loadLogs()
+      loadRateLimit()
+      loadPerformance()
+    }
+
+    if (show && autoRefresh) {
+      const interval = setInterval(() => {
+        loadLogs()
+        loadRateLimit()
+      }, 2000)
+      return () => clearInterval(interval)
+    }
+  }, [show, autoRefresh, loadLogs, loadRateLimit, loadPerformance])
 
   if (!show) return null
 

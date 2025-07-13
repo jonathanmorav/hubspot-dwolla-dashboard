@@ -75,6 +75,73 @@ export interface SearchResults {
   }
 }
 
+// Correlated Search Results
+export interface CorrelatedSearchResults {
+  correlatedData: import('../utils/dataCorrelation').CorrelatedCustomerData[]
+  summary: {
+    totalResults: number
+    linkedAccounts: number
+    unlinkedHubSpot: number
+    unlinkedDwolla: number
+    inconsistencyCount: number
+  }
+}
+
+// API Response Types
+export interface HubSpotSearchResponse {
+  results: HubSpotContact[] | HubSpotCompany[]
+  total: number
+  paging?: {
+    next?: {
+      after?: string
+    }
+  }
+}
+
+export interface HubSpotContactSearchResponse {
+  results: HubSpotContact[]
+  total: number
+  paging?: {
+    next?: {
+      after?: string
+    }
+  }
+}
+
+export interface HubSpotCompanySearchResponse {
+  results: HubSpotCompany[]
+  total: number
+  paging?: {
+    next?: {
+      after?: string
+    }
+  }
+}
+
+export interface DwollaCustomerSearchResponse {
+  _embedded?: {
+    customers: DwollaCustomer[]
+  }
+  total?: number
+  _links?: {
+    next?: {
+      href: string
+    }
+  }
+}
+
+export interface DwollaTransferSearchResponse {
+  _embedded?: {
+    transfers: DwollaTransfer[]
+  }
+  total?: number
+  _links?: {
+    next?: {
+      href: string
+    }
+  }
+}
+
 // API Error
 export interface ApiError {
   message: string

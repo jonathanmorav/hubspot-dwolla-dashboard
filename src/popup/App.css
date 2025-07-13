@@ -59,9 +59,16 @@
   animation-fill-mode: both;
 }
 
+.search-input-container {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
 .search-input {
   flex: 1;
-  padding: var(--space-sm) var(--space-md);
+  padding: var(--space-sm) 50px var(--space-sm) var(--space-md);
   border: 2px solid var(--color-border);
   border-radius: var(--radius-md);
   font-size: var(--font-size-sm);
@@ -83,6 +90,33 @@
 .search-input[aria-invalid="true"] {
   border-color: var(--color-error);
   background-color: var(--color-error-bg);
+}
+
+.search-history-button {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  font-size: 18px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  z-index: 1;
+}
+
+.search-history-button:hover {
+  background: var(--hover);
+  color: var(--primary);
+  transform: translateY(-50%) scale(1.1);
+}
+
+.search-history-button:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 .search-button {
@@ -166,6 +200,154 @@
   grid-template-columns: 1fr 1fr;
   gap: var(--space-lg);
   height: 100%;
+}
+
+/* Loading Skeletons */
+.loading-skeletons {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  animation: var(--animation-fade-in);
+}
+
+/* Correlated Results Styles */
+.correlated-results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  animation: var(--animation-fade-in);
+}
+
+/* No Results Styles */
+.no-results {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xxl) var(--space-lg);
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.no-results-icon {
+  font-size: 48px;
+  margin-bottom: var(--space-lg);
+  opacity: 0.6;
+}
+
+.no-results h3 {
+  margin: 0 0 var(--space-sm) 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+}
+
+.no-results p {
+  margin: 0 0 var(--space-lg) 0;
+  font-size: var(--font-size-base);
+  color: var(--text-muted);
+}
+
+.no-results-suggestions {
+  margin-bottom: var(--space-lg);
+  text-align: left;
+  max-width: 400px;
+}
+
+.no-results-suggestions h4 {
+  margin: 0 0 var(--space-sm) 0;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-secondary);
+}
+
+.no-results-suggestions ul {
+  margin: 0;
+  padding-left: var(--space-lg);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.no-results-suggestions li {
+  margin-bottom: var(--space-xs);
+}
+
+.no-results-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  align-items: center;
+  max-width: 400px;
+}
+
+.suggestion-button {
+  background: var(--primary-light);
+  color: var(--primary);
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: var(--transition-all);
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  text-align: left;
+  width: 100%;
+  justify-content: center;
+}
+
+.suggestion-button:hover {
+  background: var(--primary);
+  color: white;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.suggestion-button:active {
+  transform: translateY(0);
+}
+
+/* Search Summary Styles */
+.search-summary {
+  margin-top: var(--space-lg);
+  padding: var(--space-md);
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+}
+
+.summary-stats {
+  display: flex;
+  gap: var(--space-lg);
+  justify-content: center;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 80px;
+}
+
+.stat-number {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--primary);
+  line-height: 1;
+}
+
+.stat.warning .stat-number {
+  color: var(--warning);
+}
+
+.stat-label {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  margin-top: var(--space-xs);
+  text-align: center;
 }
 
 /* Authentication Styles */

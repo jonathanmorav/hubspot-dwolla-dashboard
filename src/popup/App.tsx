@@ -1,9 +1,13 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { HubSpotPanel } from '../components/HubSpotPanel'
-import { DwollaPanel } from '../components/DwollaPanel'
+import { CorrelatedDataView } from '../components/CorrelatedDataView'
+import { SearchHistory } from '../components/SearchHistory'
 import { DebugPanel } from '../components/DebugPanel'
+import { ErrorDisplay } from '../components/ErrorDisplay'
 import { Header } from '../components/Header'
-import { SearchResults } from '../types'
+import { SkeletonCorrelatedData } from '../components/Skeleton'
+import { CorrelatedSearchResults } from '../types'
+import { CorrelatedCustomerData } from '../utils/dataCorrelation'
+import { searchHistoryService } from '../utils/searchHistory'
 import { checkAuthStatus, validateTokenPermissions } from '../utils/auth'
 import { validateSearchQuery, sanitizeSearchQuery, detectAndValidateQueryType } from '../utils/validation'
 import { useDebouncedCallback } from '../hooks/useDebounce'
@@ -22,24 +26,28 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [searchResults, setSearchResults] = useState<SearchResults | null>(null)
+  const [partialResults, setPartialResults] = useState<{
+    hubspot?: any
+    dwolla?: any
+    hubspotError?: string
+    dwollaError?: string
+  } | null>(null)
+  const [searchResults, setSearchResults] = useState<CorrelatedSearchResults | null>(null)
   const [loadingTransfers, setLoadingTransfers] = useState(false)
   const [showDebug, setShowDebug] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
+  const [showSearchHistory, setShowSearchHistory] = useState(false)
+  const [searchStartTime, setSearchStartTime] = useState<number | null>(null)
+  const [lastSearchQuery, setLastSearchQuery] = useState<string>('')
   
   // Show debug toggle in development mode
   const isDev = import.meta.env?.DEV || false
   
-  // Memoized search results
-  const hubspotData = useMemo(() => ({
-    companies: searchResults?.hubspot.companies || [],
-    contacts: searchResults?.hubspot.contacts || []
-  }), [searchResults?.hubspot.companies, searchResults?.hubspot.contacts])
-  
-  const dwollaData = useMemo(() => ({
-    customers: searchResults?.dwolla.customers || [],
-    transfers: searchResults?.dwolla.transfers || []
-  }), [searchResults?.dwolla.customers, searchResults?.dwolla.transfers])
+  // Memoized correlated data
+  const correlatedData = useMemo(() => 
+    searchResults?.correlatedData || [],
+    [searchResults?.correlatedData]
+  )
   
   // Use message handler with cancellation support
   const { sendMessage, cancel } = useMessageHandler()
@@ -98,6 +106,8 @@ function App() {
     setLoading(true)
     setError(null)
     setSearchResults(null)
+    setSearchStartTime(Date.now())
+    setLastSearchQuery(sanitized)
     
     try {
       logger.info('Performing search', { query: sanitized, type: queryType.type })
@@ -113,18 +123,41 @@ function App() {
         logger.error('Search failed', new Error(response.error))
       } else if (response.success) {
         setSearchResults({
-          hubspot: response.hubspot,
-          dwolla: response.dwolla
+          correlatedData: response.correlatedData,
+          summary: response.summary
         })
+        
+        // Add to search history
+        if (searchStartTime) {
+          const searchDuration = Date.now() - searchStartTime
+          await searchHistoryService.addSearch({
+            query: sanitized,
+            queryType: queryType.type as any,
+            resultCount: response.summary?.totalResults || 0,
+            linkedAccounts: response.summary?.linkedAccounts || 0,
+            searchDuration
+          })
+        }
+        
         logger.info('Search completed', { 
-          hubspotResults: response.hubspot?.contacts?.length || 0,
-          dwollaResults: response.dwolla?.customers?.length || 0
+          totalResults: response.summary?.totalResults || 0,
+          linkedAccounts: response.summary?.linkedAccounts || 0,
+          unlinkedHubSpot: response.summary?.unlinkedHubSpot || 0,
+          unlinkedDwolla: response.summary?.unlinkedDwolla || 0
         })
       }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to search'
-      setError(errorMessage)
-      logger.error('Search error', err as Error)
+      const error = err instanceof Error ? err : new Error('Failed to search')
+      const { type, friendlyMessage } = categorizeError(error)
+      
+      setError(friendlyMessage)
+      setPartialResults(null)
+      
+      logger.error('Search error', error, { 
+        errorType: type,
+        friendlyMessage,
+        query: sanitized 
+      })
     } finally {
       setLoading(false)
     }
@@ -147,6 +180,73 @@ function App() {
       handleDebouncedSearch(value.trim())
     }
   }, [handleDebouncedSearch])
+  
+  // Handle search history selection
+  const handleSearchHistorySelect = useCallback((query: string) => {
+    setSearchQuery(query)
+    handleDebouncedSearch(query)
+  }, [handleDebouncedSearch])
+  
+  // Retry last search
+  const handleRetrySearch = useCallback(() => {
+    if (lastSearchQuery) {
+      setError(null)
+      setPartialResults(null)
+      handleDebouncedSearch(lastSearchQuery)
+    }
+  }, [lastSearchQuery, handleDebouncedSearch])
+  
+  // Categorize errors for better user messaging
+  const categorizeError = useCallback((error: Error): { type: 'auth' | 'network' | 'timeout' | 'config' | 'unknown', friendlyMessage: string } => {
+    const message = error.message.toLowerCase()
+    
+    if (message.includes('not authenticated') || message.includes('authentication')) {
+      return {
+        type: 'auth',
+        friendlyMessage: 'Authentication expired. Please reconnect to HubSpot and Dwolla.'
+      }
+    }
+    
+    if (message.includes('timeout') || message.includes('cancelled')) {
+      return {
+        type: 'timeout',
+        friendlyMessage: 'Request timed out. The search is taking longer than expected.'
+      }
+    }
+    
+    if (message.includes('network') || message.includes('fetch') || message.includes('connection')) {
+      return {
+        type: 'network',
+        friendlyMessage: 'Network connection issue. Please check your internet connection.'
+      }
+    }
+    
+    if (message.includes('client id not configured') || message.includes('configuration')) {
+      return {
+        type: 'config',
+        friendlyMessage: 'Extension configuration error. Please contact your administrator.'
+      }
+    }
+    
+    return {
+      type: 'unknown',
+      friendlyMessage: error.message
+    }
+  }, [])
+  
+  // Handle keyboard shortcuts for search history
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd/Ctrl + K to open search history
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setShowSearchHistory(true)
+      }
+    }
+    
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [])
 
   const handleSelectCustomer = useCallback(async (customerId: string) => {
     setLoadingTransfers(true)
@@ -159,12 +259,23 @@ function App() {
       }, { timeout: 20000 })
 
       if (response.success && searchResults) {
+        // Update the specific customer's transfers in correlated data
+        const updatedData = searchResults.correlatedData.map(customerData => {
+          if (customerData.dwolla.customer?.id === customerId) {
+            return {
+              ...customerData,
+              dwolla: {
+                ...customerData.dwolla,
+                transfers: response.transfers
+              }
+            }
+          }
+          return customerData
+        })
+        
         setSearchResults({
           ...searchResults,
-          dwolla: {
-            ...searchResults.dwolla,
-            transfers: response.transfers
-          }
+          correlatedData: updatedData
         })
         logger.info('Transfers loaded', { count: response.transfers?.length || 0 })
       }
@@ -234,7 +345,14 @@ function App() {
             Re-authentication required for: {authStatus.requiresReauth.join(', ')}
           </div>
         )}
-        {error && <div className="error" role="alert">{error}</div>}
+        {error && (
+          <ErrorDisplay 
+            error={error}
+            onRetry={handleRetrySearch}
+            onDismiss={() => setError(null)}
+            retryLabel="Try Again"
+          />
+        )}
       </div>
     )
   }
@@ -249,17 +367,30 @@ function App() {
           showDebug={showDebug}
         />
         <form onSubmit={handleSearch} className="search-form">
-          <input
-            type="text"
-            placeholder="Search by email, name, or business name..."
-            value={searchQuery}
-            onChange={handleSearchInputChange}
-            className="search-input"
-            disabled={loading}
-            aria-label="Search customers"
-            aria-invalid={!!validationError}
-            aria-describedby={validationError ? 'search-error' : undefined}
-          />
+          <div className="search-input-container">
+            <input
+              type="text"
+              placeholder="Search by email, name, or business name... (⌘K for history)"
+              value={searchQuery}
+              onChange={handleSearchInputChange}
+              className="search-input"
+              disabled={loading}
+              aria-label="Search customers by email, name, or business name"
+              aria-invalid={!!validationError}
+              aria-describedby={validationError ? 'search-error' : (searchResults ? 'search-results' : undefined)}
+              autoComplete="off"
+              spellCheck="false"
+            />
+            <button
+              type="button"
+              className="search-history-button"
+              onClick={() => setShowSearchHistory(true)}
+              aria-label="Show search history"
+              title="Search History (⌘K)"
+            >
+              🕐
+            </button>
+          </div>
           <button 
             type="submit" 
             disabled={loading || !searchQuery.trim() || !!validationError} 
@@ -276,26 +407,134 @@ function App() {
         )}
       </header>
 
-      {error && <div className="error" role="alert">{error}</div>}
+      {error && (
+        <ErrorDisplay 
+          error={error}
+          onRetry={handleRetrySearch}
+          onDismiss={() => setError(null)}
+          retryLabel="Retry Search"
+        />
+      )}
 
       <main className="main-content">
-        <div className="panel-container">
-          <HubSpotPanel
-            companies={hubspotData.companies}
-            contacts={hubspotData.contacts}
-            loading={loading}
-          />
-          
-          <DwollaPanel
-            customers={dwollaData.customers}
-            transfers={dwollaData.transfers}
-            loading={loading || loadingTransfers}
-            onSelectCustomer={handleSelectCustomer}
-          />
-        </div>
+        {loading ? (
+          <div className="loading-skeletons" aria-label="Loading search results">
+            <SkeletonCorrelatedData />
+            <SkeletonCorrelatedData />
+            <SkeletonCorrelatedData />
+          </div>
+        ) : correlatedData.length > 0 ? (
+          <div 
+            className="correlated-results"
+            id="search-results"
+            role="region"
+            aria-label={`Search results: ${correlatedData.length} customer${correlatedData.length !== 1 ? 's' : ''} found`}
+          >
+            {correlatedData.map((customerData, index) => (
+              <CorrelatedDataView
+                key={`${customerData.hubspot.company?.id || 'no-company'}-${customerData.dwolla.customer?.id || 'no-customer'}-${index}`}
+                data={customerData}
+                onSelectCustomer={handleSelectCustomer}
+                loading={loadingTransfers}
+              />
+            ))}
+          </div>
+        ) : (
+          searchResults && (
+            <div className="no-results" role="status" aria-live="polite">
+              <div className="no-results-icon">🔍</div>
+              <h3>No customers found</h3>
+              <p>No matching records found for "<strong>{lastSearchQuery}</strong>"</p>
+              
+              <div className="no-results-suggestions">
+                <h4>Search suggestions:</h4>
+                <ul>
+                  <li>Try searching with just the first or last name</li>
+                  <li>Check the email address spelling</li>
+                  <li>Search using the business name instead</li>
+                  <li>Make sure you're connected to both HubSpot and Dwolla</li>
+                </ul>
+              </div>
+              
+              <div className="no-results-actions">
+                <button 
+                  className="suggestion-button"
+                  onClick={() => setShowSearchHistory(true)}
+                  type="button"
+                >
+                  📋 View Recent Searches
+                </button>
+                {lastSearchQuery.includes('@') && (
+                  <button 
+                    className="suggestion-button"
+                    onClick={() => {
+                      const namePart = lastSearchQuery.split('@')[0]
+                      setSearchQuery(namePart)
+                      handleDebouncedSearch(namePart)
+                    }}
+                    type="button"
+                  >
+                    👤 Try searching by name: "{lastSearchQuery.split('@')[0]}"
+                  </button>
+                )}
+                {lastSearchQuery.length > 10 && (
+                  <button 
+                    className="suggestion-button"
+                    onClick={() => {
+                      const shortQuery = lastSearchQuery.split(' ')[0]
+                      setSearchQuery(shortQuery)
+                      handleDebouncedSearch(shortQuery)
+                    }}
+                    type="button"
+                  >
+                    🔍 Try shorter search: "{lastSearchQuery.split(' ')[0]}"
+                  </button>
+                )}
+              </div>
+            </div>
+          )
+        )}
+        
+        {searchResults?.summary && (
+          <div 
+            className="search-summary"
+            role="status"
+            aria-label={`Search summary: ${searchResults.summary.totalResults} total results, ${searchResults.summary.linkedAccounts} linked accounts${searchResults.summary.inconsistencyCount > 0 ? `, ${searchResults.summary.inconsistencyCount} data issues` : ''}`}
+          >
+            <div className="summary-stats">
+              <div className="stat">
+                <span className="stat-number" aria-label={`${searchResults.summary.totalResults} total results`}>
+                  {searchResults.summary.totalResults}
+                </span>
+                <span className="stat-label">Total Results</span>
+              </div>
+              <div className="stat">
+                <span className="stat-number" aria-label={`${searchResults.summary.linkedAccounts} linked accounts`}>
+                  {searchResults.summary.linkedAccounts}
+                </span>
+                <span className="stat-label">Linked Accounts</span>
+              </div>
+              {searchResults.summary.inconsistencyCount > 0 && (
+                <div className="stat warning">
+                  <span className="stat-number" aria-label={`${searchResults.summary.inconsistencyCount} data issues requiring attention`}>
+                    {searchResults.summary.inconsistencyCount}
+                  </span>
+                  <span className="stat-label">Data Issues</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </main>
 
       <DebugPanel show={showDebug} onClose={() => setShowDebug(false)} />
+      
+      <SearchHistory
+        isVisible={showSearchHistory}
+        onClose={() => setShowSearchHistory(false)}
+        onSelectSearch={handleSearchHistorySelect}
+        currentQuery={searchQuery}
+      />
     </div>
   )
 }
