@@ -37,20 +37,7 @@ export function getEnv(): EnvConfig {
     }
   }
   
-  // Fallback to process.env for service worker context (if available)
-  if (typeof process !== 'undefined' && process.env) {
-    return {
-      VITE_BACKEND_API_URL: process.env.VITE_BACKEND_API_URL || defaults.VITE_BACKEND_API_URL,
-      VITE_API_KEY: process.env.VITE_API_KEY || defaults.VITE_API_KEY,
-      VITE_HUBSPOT_CLIENT_ID: process.env.VITE_HUBSPOT_CLIENT_ID || defaults.VITE_HUBSPOT_CLIENT_ID,
-      VITE_DWOLLA_CLIENT_ID: process.env.VITE_DWOLLA_CLIENT_ID || defaults.VITE_DWOLLA_CLIENT_ID,
-      VITE_DWOLLA_ENVIRONMENT: process.env.VITE_DWOLLA_ENVIRONMENT || defaults.VITE_DWOLLA_ENVIRONMENT,
-      MODE: process.env.NODE_ENV || defaults.MODE,
-      DEV: process.env.NODE_ENV !== 'production'
-    }
-  }
-  
-  // Return defaults if neither is available
+  // Return defaults if import.meta.env is not available (service worker context)
   return defaults
 }
 

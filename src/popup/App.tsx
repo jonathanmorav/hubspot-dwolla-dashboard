@@ -6,9 +6,9 @@ import { ErrorDisplay } from '../components/ErrorDisplay'
 import { Header } from '../components/Header'
 import { SkeletonCorrelatedData } from '../components/Skeleton'
 import { CorrelatedSearchResults } from '../types'
-import { CorrelatedCustomerData } from '../utils/dataCorrelation'
 import { searchHistoryService } from '../utils/searchHistory'
 import { checkAuthStatus, validateTokenPermissions } from '../utils/auth'
+import { sessionManager } from '../utils/sessionManager'
 import { validateSearchQuery, sanitizeSearchQuery, detectAndValidateQueryType } from '../utils/validation'
 import { useDebouncedCallback } from '../hooks/useDebounce'
 import { useMessageHandler } from '../hooks/useMessageHandler'
@@ -23,15 +23,10 @@ function App() {
     isFullyAuthenticated: false,
     requiresReauth: [] as string[]
   })
+  const [authLoading, setAuthLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [partialResults, setPartialResults] = useState<{
-    hubspot?: any
-    dwolla?: any
-    hubspotError?: string
-    dwollaError?: string
-  } | null>(null)
   const [searchResults, setSearchResults] = useState<CorrelatedSearchResults | null>(null)
   const [loadingTransfers, setLoadingTransfers] = useState(false)
   const [showDebug, setShowDebug] = useState(false)
@@ -54,6 +49,25 @@ function App() {
 
   const checkAuth = useCallback(async () => {
     try {
+      setAuthLoading(true)
+      
+      // Check if session is still valid
+      const sessionValid = await sessionManager.isSessionValid()
+      if (!sessionValid) {
+        // Session expired, clear auth and show login
+        setAuthStatus({
+          hubspot: false,
+          dwolla: false,
+          isFullyAuthenticated: false,
+          requiresReauth: ['hubspot', 'dwolla']
+        })
+        setAuthLoading(false)
+        return
+      }
+      
+      // Update activity on auth check
+      await sessionManager.updateActivity()
+      
       const status = await checkAuthStatus()
       setAuthStatus(status)
       
@@ -75,11 +89,68 @@ function App() {
     } catch (err) {
       logger.error('Error checking auth status', err as Error)
       setError('Failed to check authentication status')
+    } finally {
+      setAuthLoading(false)
     }
   }, [])
 
   useEffect(() => {
     checkAuth()
+    
+    // Initialize session manager activity tracking
+    sessionManager.updateActivity()
+    
+    // Listen for auth state changes from service worker
+    const handleMessage = (message: any) => {
+      if (message.type === 'AUTH_STATE_CHANGED') {
+        console.log('Auth state changed:', message)
+        checkAuth()
+      } else if (message.type === 'SESSION_EXPIRED') {
+        console.log('Session expired')
+        setAuthStatus({
+          hubspot: false,
+          dwolla: false,
+          isFullyAuthenticated: false,
+          requiresReauth: ['hubspot', 'dwolla']
+        })
+        setError('Your session has expired. Please log in again.')
+      }
+    }
+    
+    // Listen for storage changes
+    const handleStorageChange = (changes: any, area: string) => {
+      if (area === 'local') {
+        const hasAuthChange = Object.keys(changes).some(key => 
+          key.endsWith('_authenticated')
+        )
+        if (hasAuthChange) {
+          console.log('Storage auth state changed')
+          checkAuth()
+        }
+      }
+    }
+    
+    // Recheck auth when window gains focus (popup reopened)
+    const handleFocus = () => {
+      console.log('Popup focused, rechecking auth')
+      checkAuth()
+    }
+    
+    chrome.runtime.onMessage.addListener(handleMessage)
+    chrome.storage.onChanged.addListener(handleStorageChange)
+    window.addEventListener('focus', handleFocus)
+    
+    // Also check auth after a small delay to handle timing issues
+    const timer = setTimeout(() => {
+      checkAuth()
+    }, 100)
+    
+    return () => {
+      chrome.runtime.onMessage.removeListener(handleMessage)
+      chrome.storage.onChanged.removeListener(handleStorageChange)
+      window.removeEventListener('focus', handleFocus)
+      clearTimeout(timer)
+    }
   }, [checkAuth])
 
   // Debounced search handler
@@ -151,7 +222,6 @@ function App() {
       const { type, friendlyMessage } = categorizeError(error)
       
       setError(friendlyMessage)
-      setPartialResults(null)
       
       logger.error('Search error', error, { 
         errorType: type,
@@ -167,6 +237,8 @@ function App() {
   const handleSearch = useCallback((e: React.FormEvent) => {
     e.preventDefault()
     if (!searchQuery.trim()) return
+    // Update activity on search
+    sessionManager.updateActivity()
     handleDebouncedSearch(searchQuery.trim())
   }, [searchQuery, handleDebouncedSearch])
   
@@ -174,6 +246,9 @@ function App() {
   const handleSearchInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value
     setSearchQuery(value)
+    
+    // Update activity on input
+    sessionManager.updateActivity()
     
     // Trigger debounced search if query is valid
     if (value.trim().length >= 2) {
@@ -191,7 +266,6 @@ function App() {
   const handleRetrySearch = useCallback(() => {
     if (lastSearchQuery) {
       setError(null)
-      setPartialResults(null)
       handleDebouncedSearch(lastSearchQuery)
     }
   }, [lastSearchQuery, handleDebouncedSearch])
@@ -290,6 +364,7 @@ function App() {
   const handleAuth = useCallback(async (provider: 'hubspot' | 'dwolla') => {
     try {
       logger.info('Starting authentication', { provider })
+      setError(null) // Clear any previous errors
       
       const response = await sendMessage<any>({
         type: 'AUTHENTICATE',
@@ -298,7 +373,16 @@ function App() {
 
       if (response.success) {
         logger.info('Authentication successful', { provider })
-        await checkAuth()
+        // Update session activity
+        await sessionManager.updateActivity()
+        // Immediately update local state to show success
+        setAuthStatus(prev => ({
+          ...prev,
+          [provider]: true,
+          isFullyAuthenticated: provider === 'hubspot' ? prev.dwolla : prev.hubspot
+        }))
+        // Then do a full check to ensure consistency
+        setTimeout(() => checkAuth(), 500)
       } else {
         const errorMsg = `Failed to authenticate with ${provider}`
         setError(errorMsg)
@@ -309,7 +393,7 @@ function App() {
       setError(errorMsg)
       logger.error('Authentication error', err as Error, { provider })
     }
-  }, [sendMessage])
+  }, [sendMessage, checkAuth])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -317,6 +401,20 @@ function App() {
       cancel() // Cancel any pending requests
     }
   }, [cancel])
+  
+  // Show loading state while checking auth
+  if (authLoading) {
+    return (
+      <div className="auth-container">
+        <img src={logo} alt="Company Logo" className="auth-logo" />
+        <h1>Unified Customer Dashboard</h1>
+        <div className="loading-auth">
+          <div className="spinner"></div>
+          <p>Checking authentication status...</p>
+        </div>
+      </div>
+    )
+  }
   
   if (!authStatus.isFullyAuthenticated) {
     return (

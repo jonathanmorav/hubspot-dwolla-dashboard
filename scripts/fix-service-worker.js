@@ -23,7 +23,7 @@ const loaderPath = path.join(distDir, 'service-worker-loader.js');
 const loaderContent = `// Service worker loader for Chrome extension
 // Use importScripts instead of ES6 import
 try {
-  importScripts('/assets/${serviceWorkerFile}');
+  importScripts('./assets/${serviceWorkerFile}');
 } catch (error) {
   console.error('Failed to load service worker:', error);
 }

@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npx tsc && vite build && node scripts/fix-service-worker.js",
-    "build:no-typecheck": "vite build && node scripts/fix-service-worker.js",
+    "build": "node scripts/build-extension.js",
+    "build:quick": "npx vite build && node scripts/build-service-worker.js",
+    "build:sw": "node scripts/build-service-worker.js",
     "preview": "vite preview",
     "typecheck": "tsc",
     "lint": "eslint . --ext .ts,.tsx"

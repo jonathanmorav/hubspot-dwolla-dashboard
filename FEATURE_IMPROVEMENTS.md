@@ -294,3 +294,72 @@ Add action buttons to each customer card:
 These improvements transform the extension from a passive data viewer into an active support assistant. The focus remains on practical, high-impact features that directly address the daily pain points of a small support team.
 
 Implementation priority should follow user value: correlation first (immediate time savings), then search history (builds efficiency), and finally quick actions (workflow optimization).
+
+ Plan to Fix OAuth Authentication State Persistence
+
+     Problem Analysis:
+
+     1. OAuth authentication is working correctly (tokens are being exchanged and stored)
+     2. The popup closes after authentication (normal Chrome behavior)
+     3. When reopening the popup, the UI doesn't reflect the authenticated state
+     4. The auth check is happening in useEffect but the storage might not be updated yet
+
+     Solution Plan:
+
+     1. Update the service worker to notify the popup of auth success:
+       - After successful token storage in storeTokens(), send a message to any open popups
+       - Add a runtime message to notify successful authentication
+     2. Enhance the popup to listen for auth state changes:
+       - Add a message listener in App.tsx to update auth state when notified
+       - Add chrome.storage.onChanged listener to react to storage changes
+       - Force a re-check of auth status after the popup receives focus
+     3. Fix timing issues in auth status check:
+       - The checkAuthStatus() function checks both chrome.storage.local and chrome.storage.session
+       - Ensure the service worker waits for storage operations to complete before returning success
+     4. Add a small delay or retry mechanism:
+       - When the popup opens, add a slight delay before checking auth status
+       - Or implement a retry mechanism if auth status appears false but tokens exist
+
+     Files to modify:
+
+     1. /dist/service-worker.js - Add notification after successful auth
+     2. /src/popup/App.tsx - Add listeners for auth state changes
+     3. /src/utils/auth.ts - Ensure storage operations are properly awaited
+
+     Implementation steps:
+
+     1. Update service worker to broadcast auth success
+     2. Add storage change listeners in the popup
+     3. Add focus event listener to recheck auth when popup opens
+     4. Test the complete OAuth flow to ensure state persists
+
+     The user is experiencing an issue where OAuth authentication completes 
+  successfully for both services, but when they reopen the extension, the 
+  authentication state is not persisted - they're back at the login screen.
+
+  Let me think through the potential sources of this issue:
+
+  1. Chrome Storage Session vs Local Storage: 
+    - We're using chrome.storage.session for tokens, which persists across 
+  popup closes but NOT across browser restarts
+    - We're using chrome.storage.local for authentication flags
+    - The auth check in auth.ts checks both storages
+  2. Service Worker Lifecycle:
+    - Service workers can be terminated and restarted by Chrome
+    - When the popup closes and reopens, the service worker might be in a 
+  different state
+    - The service worker might not be properly initialized when the popup 
+  checks auth
+  3. Timing Issues:
+    - The popup might be checking auth before the storage operations complete
+    - The auth check happens in a useEffect, but storage operations are async
+  4. Storage API Behavior:
+    - chrome.storage.session might not be persisting between popup sessions 
+  as expected
+    - There might be a Chrome bug or behavior we're not accounting for
+  5. Auth Check Logic:
+    - The isAuthenticated function in auth.ts checks for token existence in 
+  session storage
+    - If session storage is cleared between popup opens, this would fail
+
+  Let me read some key files to understand better:

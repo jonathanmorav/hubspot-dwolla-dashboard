@@ -70,14 +70,12 @@ async function storeTokens(
     expires_at: Date.now() + (tokenData.expires_in * 1000)
   }
 
-  // Use session storage for sensitive data (auto-clears on browser close)
-  await chrome.storage.session.set({
-    [`${provider}_token`]: storageData
-  })
-
-  // Store non-sensitive auth state in local storage
+  // Store both token and auth state in local storage for persistence
+  // Note: In production, consider encrypting tokens before storage
   await chrome.storage.local.set({
-    [`${provider}_authenticated`]: true
+    [`${provider}_token`]: storageData,
+    [`${provider}_authenticated`]: true,
+    [`${provider}_last_auth`]: Date.now()
   })
 }
 
@@ -86,7 +84,7 @@ export async function getAccessToken(
   provider: 'hubspot' | 'dwolla'
 ): Promise<string | null> {
   try {
-    const result = await chrome.storage.session.get(`${provider}_token`)
+    const result = await chrome.storage.local.get(`${provider}_token`)
     const tokenData = result[`${provider}_token`] as StoredToken | undefined
 
     if (!tokenData) {
@@ -153,8 +151,11 @@ async function refreshAccessToken(
 
 // Clear tokens for a provider
 export async function clearTokens(provider: 'hubspot' | 'dwolla'): Promise<void> {
-  await chrome.storage.session.remove(`${provider}_token`)
-  await chrome.storage.local.remove(`${provider}_authenticated`)
+  await chrome.storage.local.remove([
+    `${provider}_token`,
+    `${provider}_authenticated`,
+    `${provider}_last_auth`
+  ])
 }
 
 // Clear all authentication data
@@ -173,7 +174,7 @@ export async function isAuthenticated(provider: 'hubspot' | 'dwolla'): Promise<b
     }
 
     // Verify token exists and is not expired
-    const tokenData = await chrome.storage.session.get(`${provider}_token`)
+    const tokenData = await chrome.storage.local.get(`${provider}_token`)
     const token = tokenData[`${provider}_token`] as StoredToken | undefined
 
     if (!token || !token.access_token) {
