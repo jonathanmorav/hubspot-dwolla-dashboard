@@ -1,9 +1,23 @@
 node_modules/
 dist/
+
+# Environment files (contain secrets)
 .env
 .env.local
+.env.production
+.env.development
+backend/.env
+backend/.env.local
+backend/.env.production
+backend/.env.development
+
+# Logs
 *.log
+
+# OS files
 .DS_Store
+
+# Editor files
 .vscode/
 .idea/
 *.swp
