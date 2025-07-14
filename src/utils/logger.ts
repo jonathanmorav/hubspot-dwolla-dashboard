@@ -1,4 +1,5 @@
 // Comprehensive logging system for Chrome extension
+import { env } from '../config/env'
 
 export enum LogLevel {
   DEBUG = 0,
@@ -222,7 +223,7 @@ export class Logger {
       context: {
         timestamp: Date.now(),
         extensionVersion: chrome.runtime.getManifest().version,
-        environment: import.meta.env?.MODE === 'production' ? 'production' : 'development',
+        environment: env.MODE === 'production' ? 'production' : 'development',
         ...context
       }
     }
@@ -321,8 +322,8 @@ export class Logger {
 
 // Create singleton instance
 export const logger = Logger.getInstance({
-  level: import.meta.env?.DEV ? LogLevel.DEBUG : LogLevel.INFO,
-  console: import.meta.env?.DEV,
+  level: env.DEV ? LogLevel.DEBUG : LogLevel.INFO,
+  console: env.DEV,
   sanitize: true,
   maxLogs: 1000,
   maxAge: 24 * 60 * 60 * 1000 // 24 hours

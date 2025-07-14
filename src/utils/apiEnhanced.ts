@@ -3,6 +3,7 @@
 import { logger, generateRequestId, LogTimer } from './logger'
 import { rateLimiter, RateLimitError } from './rateLimiter'
 import { getAccessToken } from './auth'
+import { env } from '../config/env'
 import { 
   HubSpotContactSearchResponse, 
   HubSpotCompanySearchResponse,
@@ -470,7 +471,7 @@ export class EnhancedHubSpotClient extends EnhancedApiClient {
 // Enhanced Dwolla Client
 export class EnhancedDwollaClient extends EnhancedApiClient {
   constructor() {
-    const environment = import.meta.env?.VITE_DWOLLA_ENVIRONMENT || 'sandbox'
+    const environment = env.VITE_DWOLLA_ENVIRONMENT || 'sandbox'
     super({
       baseUrl: environment === 'production' 
         ? 'https://api.dwolla.com' 

@@ -1,8 +1,9 @@
 // Secure OAuth token management
+import { env } from '../config/env'
 
 // Backend API configuration - should match your deployed backend URL
-const BACKEND_API_URL = import.meta.env?.VITE_BACKEND_API_URL || 'http://localhost:3001'
-const API_KEY = import.meta.env?.VITE_API_KEY || 'development-key'
+const BACKEND_API_URL = env.VITE_BACKEND_API_URL || 'http://localhost:3001'
+const API_KEY = env.VITE_API_KEY || 'development-key'
 
 interface TokenResponse {
   access_token: string

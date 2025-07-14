@@ -21,8 +21,7 @@ export default defineManifest({
   ],
   
   background: {
-    service_worker: 'src/background/service-worker.ts',
-    type: 'module'
+    service_worker: 'src/background/service-worker-static.ts'
   },
   
   action: {

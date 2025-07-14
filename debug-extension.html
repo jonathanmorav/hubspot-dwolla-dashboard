@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Extension Debug Helper</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .section {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h2 {
+            color: #333;
+            margin-top: 0;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeeba;
+        }
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        code {
+            background: #f8f8f8;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-size: 0.9em;
+        }
+        pre {
+            background: #f8f8f8;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        .button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        .button:hover {
+            background: #0056b3;
+        }
+        .console {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .console-log {
+            margin: 2px 0;
+        }
+        .console-error {
+            color: #f48771;
+        }
+        .console-warn {
+            color: #dcdcaa;
+        }
+        .console-info {
+            color: #9cdcfe;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔧 Chrome Extension Debug Helper</h1>
+    
+    <div class="section">
+        <h2>📋 Debug Instructions</h2>
+        <ol>
+            <li>Open Chrome DevTools (F12 or right-click → Inspect)</li>
+            <li>Load your extension in Chrome by going to <code>chrome://extensions/</code></li>
+            <li>Enable "Developer mode" toggle in the top right</li>
+            <li>Click "Load unpacked" and select the <code>dist</code> folder</li>
+            <li>Note the Extension ID shown on the extension card</li>
+            <li>Click the extension icon in Chrome toolbar to open the popup</li>
+            <li>Right-click the popup and select "Inspect" to see popup console</li>
+            <li>On the extensions page, click "Service Worker" link to see background console</li>
+        </ol>
+    </div>
+
+    <div class="section">
+        <h2>🔍 Quick Checks</h2>
+        <div id="checks"></div>
+        <button class="button" onclick="runChecks()">Run All Checks</button>
+        <button class="button" onclick="testBackendHealth()">Test Backend Health</button>
+        <button class="button" onclick="checkEnvVars()">Check Environment</button>
+    </div>
+
+    <div class="section">
+        <h2>💻 Console Output</h2>
+        <div id="console" class="console"></div>
+    </div>
+
+    <div class="section">
+        <h2>🐛 Common Issues & Solutions</h2>
+        <div class="status warning">
+            <strong>Issue:</strong> "Cannot read properties of undefined" error<br>
+            <strong>Solution:</strong> The service worker might not be active. Check the service worker console and reload the extension.
+        </div>
+        <div class="status warning">
+            <strong>Issue:</strong> OAuth popup doesn't open<br>
+            <strong>Solution:</strong> Check if popup blocker is enabled. Also verify the Extension ID in backend/.env matches your loaded extension.
+        </div>
+        <div class="status warning">
+            <strong>Issue:</strong> "Client ID not configured" error<br>
+            <strong>Solution:</strong> Environment variables might not be loaded. Check if .env file exists and rebuild the extension.
+        </div>
+        <div class="status warning">
+            <strong>Issue:</strong> Network errors or CORS issues<br>
+            <strong>Solution:</strong> Ensure backend server is running on port 3001. Check backend console for errors.
+        </div>
+    </div>
+
+    <script>
+        const consoleDiv = document.getElementById('console');
+        const checksDiv = document.getElementById('checks');
+
+        function log(message, type = 'log') {
+            const entry = document.createElement('div');
+            entry.className = `console-log console-${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            consoleDiv.appendChild(entry);
+            consoleDiv.scrollTop = consoleDiv.scrollHeight;
+        }
+
+        function addCheck(name, status, message) {
+            const check = document.createElement('div');
+            check.className = `status ${status}`;
+            check.innerHTML = `<strong>${name}:</strong> ${message}`;
+            checksDiv.appendChild(check);
+        }
+
+        async function runChecks() {
+            checksDiv.innerHTML = '';
+            log('Starting diagnostic checks...', 'info');
+
+            // Check if extension is loaded
+            try {
+                if (chrome && chrome.runtime && chrome.runtime.id) {
+                    addCheck('Extension Status', 'success', `Extension is loaded with ID: ${chrome.runtime.id}`);
+                    log(`Extension ID: ${chrome.runtime.id}`, 'info');
+                } else {
+                    addCheck('Extension Status', 'error', 'Extension not detected. Make sure to open this file from the extension context.');
+                    log('Extension not detected', 'error');
+                }
+            } catch (e) {
+                addCheck('Extension Status', 'error', 'Not running in extension context');
+                log('Not in extension context', 'error');
+            }
+
+            // Check backend health
+            await testBackendHealth();
+
+            // Check environment
+            checkEnvVars();
+        }
+
+        async function testBackendHealth() {
+            log('Testing backend server...', 'info');
+            try {
+                const response = await fetch('http://localhost:3001/health');
+                const data = await response.json();
+                addCheck('Backend Server', 'success', `Server is running (${data.status})`);
+                log(`Backend health check: ${JSON.stringify(data)}`, 'info');
+            } catch (e) {
+                addCheck('Backend Server', 'error', 'Backend server not responding on port 3001');
+                log(`Backend error: ${e.message}`, 'error');
+            }
+        }
+
+        function checkEnvVars() {
+            log('Checking environment variables...', 'info');
+            
+            // List of required env vars
+            const requiredVars = [
+                'VITE_HUBSPOT_CLIENT_ID',
+                'VITE_DWOLLA_CLIENT_ID',
+                'VITE_BACKEND_API_URL',
+                'VITE_API_KEY'
+            ];
+
+            // Note: We can't actually access env vars from the browser, but we can check the config
+            addCheck('Environment', 'info', 'Check the .env file for required variables');
+            log('Required environment variables:', 'info');
+            requiredVars.forEach(v => log(`  - ${v}`, 'log'));
+        }
+
+        // Auto-run checks on load
+        window.addEventListener('load', () => {
+            log('Debug helper loaded', 'info');
+            runChecks();
+        });
+
+        // Listen for messages from extension
+        if (window.chrome && chrome.runtime && chrome.runtime.onMessage) {
+            chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+                log(`Message received: ${JSON.stringify(message)}`, 'info');
+            });
+        }
+    </script>
+</body>
+</html>
