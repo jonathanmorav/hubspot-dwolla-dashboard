@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
+import dotenv from 'dotenv';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -10,6 +11,22 @@ const rootDir = path.resolve(__dirname, '..');
 
 async function buildExtension() {
   console.log('Building Chrome Extension...\n');
+  
+  // Load environment variables based on NODE_ENV
+  const isProduction = process.env.NODE_ENV === 'production';
+  const envFile = isProduction ? '.env.production' : '.env.development';
+  const envPath = path.join(rootDir, envFile);
+  
+  console.log(`📦 Building for ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
+  console.log(`📁 Using environment file: ${envFile}`);
+  
+  // Load environment variables
+  if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath });
+    console.log('✓ Environment variables loaded\n');
+  } else {
+    console.log(`⚠️  Environment file ${envFile} not found, using defaults\n`);
+  }
   
   try {
     // Step 1: Run TypeScript check
@@ -27,7 +44,7 @@ async function buildExtension() {
     execSync('./node_modules/.bin/vite build', { stdio: 'inherit', cwd: rootDir });
     console.log('✓ Main extension built\n');
     
-    // Step 3: Copy custom service worker after main build
+    // Step 3: Process and install custom service worker after main build
     console.log('3. Installing custom service worker...');
     
     const customSwSource = path.join(rootDir, 'custom-service-worker.js');
@@ -38,9 +55,29 @@ async function buildExtension() {
       process.exit(1);
     }
     
-    // Copy our custom service worker to overwrite whatever vite created
-    fs.copyFileSync(customSwSource, swDest);
-    console.log('✓ Custom service worker installed\n');
+    // Read the service worker template
+    let swContent = fs.readFileSync(customSwSource, 'utf-8');
+    
+    // Replace environment variables in service worker
+    const replacements = {
+      'VITE_HUBSPOT_CLIENT_ID': process.env.VITE_HUBSPOT_CLIENT_ID || '4e69a57d-eb8b-45ef-9088-c822b0eb4d08',
+      'VITE_DWOLLA_CLIENT_ID': process.env.VITE_DWOLLA_CLIENT_ID || 'aaEBh0JXyCHGdDT8sUvgQn3bWys61zdrXbCPcwU1WkhdMqMVZX',
+      'VITE_DWOLLA_ENVIRONMENT': process.env.VITE_DWOLLA_ENVIRONMENT || 'sandbox',
+      'VITE_BACKEND_API_URL': process.env.VITE_BACKEND_API_URL || 'http://localhost:3001',
+      'VITE_API_KEY': process.env.VITE_API_KEY || 'development-key'
+    };
+    
+    // Replace placeholder values with actual environment values using regex
+    Object.entries(replacements).forEach(([key, value]) => {
+      const regex = new RegExp(`const ${key} = '[^']*';`, 'g');
+      const replacement = `const ${key} = '${value}';`;
+      swContent = swContent.replace(regex, replacement);
+      console.log(`  - ${key}: ${value}`);
+    });
+    
+    // Write the processed service worker
+    fs.writeFileSync(swDest, swContent);
+    console.log('✓ Custom service worker installed with environment variables\n');
     
     // Step 4: Fix manifest.json
     console.log('4. Fixing manifest.json...');
@@ -71,17 +108,17 @@ async function buildExtension() {
     
     // Step 5: Verify the service worker is valid
     console.log('5. Verifying service worker...');
-    const swContent = fs.readFileSync(swDest, 'utf-8');
+    const swContentToVerify = fs.readFileSync(swDest, 'utf-8');
     
     // Check for ES6 imports/exports
-    if (swContent.includes('import ') || swContent.includes('export ')) {
+    if (swContentToVerify.includes('import ') || swContentToVerify.includes('export ')) {
       console.error('✗ Service worker still contains ES6 import/export statements');
       console.error('This will cause errors in Chrome. Please check the build configuration.');
       process.exit(1);
     }
     
     // Check that it's an IIFE
-    if (!swContent.includes('(function') && !swContent.includes('(()=>')) {
+    if (!swContentToVerify.includes('(function') && !swContentToVerify.includes('(()=>')) {
       console.warn('⚠ Service worker may not be properly wrapped as IIFE');
     }
     

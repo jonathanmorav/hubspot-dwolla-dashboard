@@ -44,6 +44,18 @@ const validateApiKey = (req, res, next) => {
 // OAuth token exchange endpoint
 app.post('/api/oauth/exchange', validateApiKey, async (req, res) => {
   const { code, provider, redirect_uri } = req.body
+  const extensionId = req.headers['x-extension-id']
+  
+  // Enhanced logging for debugging
+  console.log('Token exchange request:', {
+    provider,
+    hasCode: !!code,
+    codeLength: code?.length,
+    redirect_uri,
+    extensionId,
+    expectedExtensionId: process.env.ALLOWED_EXTENSION_IDS,
+    extensionIdMatch: !process.env.ALLOWED_EXTENSION_IDS || process.env.ALLOWED_EXTENSION_IDS.includes(extensionId)
+  })
   
   if (!code || !provider) {
     return res.status(400).json({ error: 'Missing required parameters' })
@@ -53,12 +65,16 @@ app.post('/api/oauth/exchange', validateApiKey, async (req, res) => {
     let tokenResponse
     
     if (provider === 'hubspot') {
+      console.log(`Attempting HubSpot token exchange with redirect_uri: ${redirect_uri}`)
       tokenResponse = await exchangeHubSpotCode(code, redirect_uri)
     } else if (provider === 'dwolla') {
+      console.log(`Attempting Dwolla token exchange with redirect_uri: ${redirect_uri}`)
       tokenResponse = await exchangeDwollaCode(code, redirect_uri)
     } else {
       return res.status(400).json({ error: 'Invalid provider' })
     }
+    
+    console.log(`Token exchange successful for ${provider}`)
     
     // Never send refresh token to client in production
     // Store it securely on server if needed
@@ -72,8 +88,28 @@ app.post('/api/oauth/exchange', validateApiKey, async (req, res) => {
     
     res.json(response)
   } catch (error) {
-    console.error(`Token exchange error for ${provider}:`, error.response?.data || error.message)
-    res.status(500).json({ error: 'Token exchange failed' })
+    console.error(`Token exchange error for ${provider}:`, {
+      message: error.message,
+      response: error.response?.data,
+      status: error.response?.status,
+      headers: error.response?.headers,
+      config: {
+        url: error.config?.url,
+        method: error.config?.method,
+        data: error.config?.data ? JSON.parse(error.config.data) : undefined
+      }
+    })
+    
+    // In development, return more detailed error
+    if (process.env.NODE_ENV === 'development') {
+      res.status(500).json({ 
+        error: 'Token exchange failed',
+        details: error.response?.data || error.message,
+        provider
+      })
+    } else {
+      res.status(500).json({ error: 'Token exchange failed' })
+    }
   }
 })
 
@@ -110,13 +146,23 @@ app.post('/api/oauth/refresh', validateApiKey, async (req, res) => {
 
 // HubSpot OAuth functions
 async function exchangeHubSpotCode(code, redirect_uri) {
-  const response = await axios.post('https://api.hubapi.com/oauth/v1/token', {
+  const payload = {
     grant_type: 'authorization_code',
     client_id: process.env.HUBSPOT_CLIENT_ID,
     client_secret: process.env.HUBSPOT_CLIENT_SECRET,
     redirect_uri: redirect_uri,
     code: code
+  }
+  
+  console.log('HubSpot token exchange payload:', {
+    grant_type: payload.grant_type,
+    client_id: payload.client_id,
+    redirect_uri: payload.redirect_uri,
+    hasClientSecret: !!payload.client_secret,
+    codeLength: code?.length
   })
+  
+  const response = await axios.post('https://api.hubapi.com/oauth/v1/token', payload)
   
   return response.data
 }
@@ -141,6 +187,15 @@ async function exchangeDwollaCode(code, redirect_uri) {
   const auth = Buffer.from(
     `${process.env.DWOLLA_CLIENT_ID}:${process.env.DWOLLA_CLIENT_SECRET}`
   ).toString('base64')
+  
+  console.log('Dwolla token exchange:', {
+    authUrl,
+    environment: process.env.DWOLLA_ENVIRONMENT,
+    clientId: process.env.DWOLLA_CLIENT_ID,
+    hasClientSecret: !!process.env.DWOLLA_CLIENT_SECRET,
+    redirect_uri,
+    codeLength: code?.length
+  })
   
   const response = await axios.post(authUrl, 
     new URLSearchParams({
@@ -186,11 +241,63 @@ async function refreshDwollaToken(refresh_token) {
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() })
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+    version: '1.0.0'
+  })
+})
+
+// Root endpoint for basic info
+app.get('/', (req, res) => {
+  res.json({ 
+    service: 'OAuth Backend Service',
+    status: 'running',
+    environment: process.env.NODE_ENV || 'development',
+    endpoints: [
+      'POST /api/oauth/exchange',
+      'POST /api/oauth/refresh', 
+      'GET /health'
+    ]
+  })
+})
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err)
+  res.status(500).json({ 
+    error: 'Internal server error',
+    message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong'
+  })
+})
+
+// Handle 404s
+app.use((req, res) => {
+  res.status(404).json({ error: 'Endpoint not found' })
+})
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully')
+  process.exit(0)
+})
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received, shutting down gracefully')
+  process.exit(0)
 })
 
 // Start server
-app.listen(PORT, () => {
-  console.log(`OAuth backend server running on port ${PORT}`)
-  console.log('Environment:', process.env.NODE_ENV || 'development')
+const server = app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 OAuth backend server running on port ${PORT}`)
+  console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`)
+  console.log(`🔗 Health check: http://localhost:${PORT}/health`)
+  
+  // Log important configuration
+  if (process.env.NODE_ENV === 'production') {
+    console.log('✅ Running in production mode')
+  } else {
+    console.log('🛠️  Running in development mode')
+  }
 })

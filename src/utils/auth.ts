@@ -206,27 +206,42 @@ export async function isAuthenticated(provider: 'hubspot' | 'dwolla'): Promise<b
   }
 }
 
-// Check if both services are authenticated with validation
+// Check if both services are authenticated - simplified approach
+// Just check the boolean flags set by the service worker, skip complex token validation
 export async function checkAuthStatus(): Promise<{
   hubspot: boolean
   dwolla: boolean
   isFullyAuthenticated: boolean
   requiresReauth: string[]
 }> {
-  const [hubspotAuth, dwollaAuth] = await Promise.all([
-    isAuthenticated('hubspot'),
-    isAuthenticated('dwolla')
-  ])
+  try {
+    // Simple check of authentication flags set by service worker
+    const result = await chrome.storage.local.get([
+      'hubspot_authenticated', 
+      'dwolla_authenticated'
+    ])
+    
+    const hubspotAuth = !!result.hubspot_authenticated
+    const dwollaAuth = !!result.dwolla_authenticated
 
-  const requiresReauth: string[] = []
-  if (!hubspotAuth) requiresReauth.push('hubspot')
-  if (!dwollaAuth) requiresReauth.push('dwolla')
+    const requiresReauth: string[] = []
+    if (!hubspotAuth) requiresReauth.push('hubspot')
+    if (!dwollaAuth) requiresReauth.push('dwolla')
 
-  return {
-    hubspot: hubspotAuth,
-    dwolla: dwollaAuth,
-    isFullyAuthenticated: hubspotAuth && dwollaAuth,
-    requiresReauth
+    return {
+      hubspot: hubspotAuth,
+      dwolla: dwollaAuth,
+      isFullyAuthenticated: hubspotAuth && dwollaAuth,
+      requiresReauth
+    }
+  } catch (error) {
+    console.error('Error checking auth status:', error)
+    return {
+      hubspot: false,
+      dwolla: false,
+      isFullyAuthenticated: false,
+      requiresReauth: ['hubspot', 'dwolla']
+    }
   }
 }
 

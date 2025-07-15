@@ -95,6 +95,12 @@ function App() {
   }, [])
 
   useEffect(() => {
+    // Update session activity when popup opens
+    chrome.storage.local.set({
+      'session_last_activity': Date.now(),
+      'session_active': true
+    })
+    
     checkAuth()
     
     // Initialize session manager activity tracking

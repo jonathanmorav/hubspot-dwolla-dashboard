@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "node scripts/build-extension.js",
+    "build:prod": "NODE_ENV=production node scripts/build-extension.js",
     "build:quick": "npx vite build && node scripts/build-service-worker.js",
     "build:sw": "node scripts/build-service-worker.js",
     "preview": "vite preview",

@@ -11,18 +11,26 @@ const VITE_API_KEY = 'development-key';
 async function exchangeCodeForToken(code, provider) {
   console.log(`Exchanging code for ${provider} token`);
   
+  // Log critical debugging information
+  const extensionId = chrome.runtime.id;
+  const redirectUri = chrome.identity.getRedirectURL();
+  console.log('Extension ID:', extensionId);
+  console.log('Redirect URI:', redirectUri);
+  console.log('Expected Extension ID in Railway:', 'aepmimpminhofdledloibnbchocmnkgo');
+  console.log('IDs Match:', extensionId === 'aepmimpminhofdledloibnbchocmnkgo');
+  
   try {
     const response = await fetch(`${VITE_BACKEND_API_URL}/api/oauth/exchange`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-API-Key': VITE_API_KEY,
-        'X-Extension-ID': chrome.runtime.id
+        'X-Extension-ID': extensionId
       },
       body: JSON.stringify({
         code,
         provider,
-        redirect_uri: chrome.identity.getRedirectURL()
+        redirect_uri: redirectUri
       })
     });
 
@@ -271,3 +279,5 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 });
 
 console.log('Service worker loaded successfully');
+console.log('Extension ID:', chrome.runtime.id);
+console.log('Redirect URI:', chrome.identity.getRedirectURL());
