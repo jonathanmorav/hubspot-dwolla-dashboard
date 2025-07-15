@@ -78,6 +78,11 @@ async function exchangeCodeForToken(code, provider) {
 
 // Get stored token
 async function getAccessToken(provider) {
+  // For Dwolla, we don't need an access token since we use proxy
+  if (provider === 'dwolla') {
+    return 'proxy-authenticated'; // Return a dummy token for compatibility
+  }
+
   // Check authentication flag in local storage
   const authResult = await chrome.storage.local.get(`${provider}_authenticated`);
   if (!authResult[`${provider}_authenticated`]) {
@@ -164,45 +169,16 @@ async function authenticateHubSpot() {
 
 // Authenticate with Dwolla
 async function authenticateDwolla() {
-  const clientId = VITE_DWOLLA_CLIENT_ID;
+  // Dwolla now uses proxy authentication - no OAuth needed
+  // Simply mark as authenticated and return success
+  await chrome.storage.local.set({
+    'dwolla_authenticated': true,
+    'dwolla_last_auth': Date.now()
+  });
   
-  if (!clientId) {
-    throw new Error('Dwolla client ID not configured. Please set VITE_DWOLLA_CLIENT_ID environment variable.');
-  }
-
-  const redirectUrl = chrome.identity.getRedirectURL();
-  const scope = 'Customers:read Transfers:read';
-  const environment = VITE_DWOLLA_ENVIRONMENT || 'sandbox';
+  console.log('Dwolla proxy authentication enabled');
   
-  const authUrl = `https://accounts${environment === 'sandbox' ? '-sandbox' : ''}.dwolla.com/auth?` +
-    `client_id=${clientId}&` +
-    `redirect_uri=${encodeURIComponent(redirectUrl)}&` +
-    `scope=${encodeURIComponent(scope)}&` +
-    `response_type=code`;
-
-  try {
-    const responseUrl = await chrome.identity.launchWebAuthFlow({
-      url: authUrl,
-      interactive: true
-    });
-
-    if (!responseUrl) {
-      throw new Error('No response URL received');
-    }
-
-    const url = new URL(responseUrl);
-    const code = url.searchParams.get('code');
-    
-    if (!code) {
-      throw new Error('No authorization code received');
-    }
-
-    await exchangeCodeForToken(code, 'dwolla');
-    return { success: true };
-  } catch (error) {
-    console.error('Dwolla auth error:', error);
-    throw error;
-  }
+  return { success: true, message: 'Dwolla authentication via proxy is enabled' };
 }
 
 // Message handler
