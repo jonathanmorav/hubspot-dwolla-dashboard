@@ -1,12 +1,19 @@
-# OAuth Backend Service
+# OAuth Backend Service with Dwolla Proxy
 
-This backend service handles secure OAuth token exchange for the Chrome extension, keeping client secrets safe on the server side.
+This backend service handles secure OAuth token exchange for HubSpot and provides a Client Credentials proxy for Dwolla API calls, keeping all secrets safe on the server side.
 
 ## Security Architecture
 
+### HubSpot (OAuth Flow)
 ```
-Chrome Extension → Backend Service → OAuth Providers (HubSpot/Dwolla)
-     (public)         (secure)           (authenticated)
+Chrome Extension → Backend Service → HubSpot OAuth
+     (public)         (secure)        (authenticated)
+```
+
+### Dwolla (Proxy Flow)
+```
+Chrome Extension → Backend Service → Dwolla API
+  (session token)   (client creds)   (authenticated)
 ```
 
 ## Setup
@@ -67,7 +74,9 @@ Chrome Extension → Backend Service → OAuth Providers (HubSpot/Dwolla)
 
 ## API Endpoints
 
-### `POST /api/oauth/exchange`
+### OAuth Endpoints (HubSpot)
+
+#### `POST /api/oauth/exchange`
 Exchange authorization code for access token.
 
 **Headers:**
@@ -78,20 +87,12 @@ Exchange authorization code for access token.
 ```json
 {
   "code": "authorization-code",
-  "provider": "hubspot|dwolla",
+  "provider": "hubspot",
   "redirect_uri": "https://extension-id.chromiumapp.org/"
 }
 ```
 
-**Response:**
-```json
-{
-  "access_token": "token",
-  "expires_in": 3600
-}
-```
-
-### `POST /api/oauth/refresh`
+#### `POST /api/oauth/refresh`
 Refresh an expired access token.
 
 **Headers:**
@@ -102,9 +103,57 @@ Refresh an expired access token.
 ```json
 {
   "refresh_token": "refresh-token",
-  "provider": "hubspot|dwolla"
+  "provider": "hubspot"
 }
 ```
+
+### Dwolla Proxy Endpoints
+
+#### `POST /api/session/create`
+Create a session for Dwolla proxy access.
+
+**Headers:**
+- `X-API-Key: your-api-key`
+- `X-Extension-ID: chrome-extension-id`
+
+**Response:**
+```json
+{
+  "sessionToken": "secure-session-token",
+  "expiresIn": 86400
+}
+```
+
+#### `POST /api/proxy/dwolla/customers/search`
+Search Dwolla customers.
+
+**Headers:**
+- `X-Session-Token: session-token`
+- `X-Extension-ID: chrome-extension-id`
+
+**Body:**
+```json
+{
+  "email": "customer@example.com",
+  "firstName": "John",
+  "lastName": "Doe",
+  "businessName": "Acme Corp",
+  "limit": 25,
+  "offset": 0
+}
+```
+
+#### `GET /api/proxy/dwolla/customers/:id`
+Get customer details.
+
+#### `GET /api/proxy/dwolla/customers/:id/transfers`
+Get customer transfers.
+
+#### `GET /api/proxy/dwolla/transfers/:id`
+Get transfer details.
+
+#### `GET /api/proxy/dwolla/customers/:id/funding-sources`
+Get customer funding sources.
 
 ### `GET /health`
 Health check endpoint.
@@ -116,8 +165,10 @@ Health check endpoint.
 3. **Rotate API keys** regularly
 4. **Whitelist extension IDs** in production
 5. **Store refresh tokens** securely (consider database)
-6. **Implement rate limiting** for production
+6. **Rate limiting** implemented (100 requests/hour per session)
 7. **Add logging and monitoring**
+8. **Session management** for proxy access control
+9. **Response sanitization** to remove sensitive Dwolla fields
 
 ## Production Checklist
 
