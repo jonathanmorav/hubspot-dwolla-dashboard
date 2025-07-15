@@ -2,11 +2,19 @@ import express from 'express'
 import cors from 'cors'
 import axios from 'axios'
 import dotenv from 'dotenv'
+import crypto from 'crypto'
 
 dotenv.config()
 
 const app = express()
 const PORT = process.env.PORT || 3001
+
+// Dwolla Client Credentials token cache
+let dwollaClientToken = null
+let dwollaTokenExpiry = null
+
+// User session management
+const userSessions = new Map() // sessionId -> { extensionId, created, lastUsed, requestCount }
 
 // Middleware
 app.use(express.json())
@@ -20,6 +28,11 @@ app.use(cors({
     }
   }
 }))
+
+// Generate session token
+function generateSessionToken() {
+  return crypto.randomBytes(32).toString('hex')
+}
 
 // Validate API key middleware
 const validateApiKey = (req, res, next) => {
@@ -38,6 +51,47 @@ const validateApiKey = (req, res, next) => {
     }
   }
   
+  next()
+}
+
+// Session management middleware for proxy endpoints
+const validateSession = (req, res, next) => {
+  const sessionToken = req.headers['x-session-token']
+  const extensionId = req.headers['x-extension-id']
+  
+  if (!sessionToken || !extensionId) {
+    return res.status(401).json({ error: 'Missing session credentials' })
+  }
+  
+  const session = userSessions.get(sessionToken)
+  
+  if (!session) {
+    return res.status(401).json({ error: 'Invalid session' })
+  }
+  
+  // Check if session matches extension ID
+  if (session.extensionId !== extensionId) {
+    return res.status(403).json({ error: 'Session mismatch' })
+  }
+  
+  // Check session expiry (24 hours)
+  const sessionAge = Date.now() - session.created
+  if (sessionAge > 24 * 60 * 60 * 1000) {
+    userSessions.delete(sessionToken)
+    return res.status(401).json({ error: 'Session expired' })
+  }
+  
+  // Update last used time and request count
+  session.lastUsed = Date.now()
+  session.requestCount++
+  
+  // Check rate limit (100 requests per hour per session)
+  const hourAgo = Date.now() - 60 * 60 * 1000
+  if (session.requestCount > 100 && session.created > hourAgo) {
+    return res.status(429).json({ error: 'Rate limit exceeded' })
+  }
+  
+  req.session = session
   next()
 }
 
@@ -194,6 +248,51 @@ async function refreshHubSpotToken(refresh_token) {
   return response.data
 }
 
+// Get Dwolla Client Credentials token
+async function getDwollaClientToken() {
+  // Check if we have a valid cached token
+  if (dwollaClientToken && dwollaTokenExpiry && new Date() < dwollaTokenExpiry) {
+    return dwollaClientToken
+  }
+
+  // Get new token using Client Credentials flow
+  const authUrl = process.env.DWOLLA_ENVIRONMENT === 'production' 
+    ? 'https://api.dwolla.com/token'
+    : 'https://api-sandbox.dwolla.com/token'
+  
+  const auth = Buffer.from(
+    `${process.env.DWOLLA_CLIENT_ID}:${process.env.DWOLLA_CLIENT_SECRET}`
+  ).toString('base64')
+
+  try {
+    console.log('Obtaining new Dwolla Client Credentials token')
+    
+    const response = await axios.post(authUrl,
+      new URLSearchParams({
+        grant_type: 'client_credentials'
+      }),
+      {
+        headers: {
+          'Authorization': `Basic ${auth}`,
+          'Content-Type': 'application/x-www-form-urlencoded'
+        }
+      }
+    )
+
+    dwollaClientToken = response.data.access_token
+    // Set expiry 5 minutes before actual expiry for safety
+    const expiresIn = response.data.expires_in || 3600
+    dwollaTokenExpiry = new Date(Date.now() + (expiresIn - 300) * 1000)
+    
+    console.log(`Dwolla Client Credentials token obtained, expires at ${dwollaTokenExpiry.toISOString()}`)
+    
+    return dwollaClientToken
+  } catch (error) {
+    console.error('Failed to get Dwolla Client Credentials token:', error.response?.data || error.message)
+    throw new Error('Failed to authenticate with Dwolla')
+  }
+}
+
 // Dwolla OAuth functions
 async function exchangeDwollaCode(code, redirect_uri) {
   const authUrl = process.env.DWOLLA_ENVIRONMENT === 'production' 
@@ -255,6 +354,285 @@ async function refreshDwollaToken(refresh_token) {
   return response.data
 }
 
+// Session creation endpoint
+app.post('/api/session/create', validateApiKey, (req, res) => {
+  const extensionId = req.headers['x-extension-id']
+  
+  if (!extensionId) {
+    return res.status(400).json({ error: 'Extension ID required' })
+  }
+  
+  const sessionToken = generateSessionToken()
+  const session = {
+    extensionId,
+    created: Date.now(),
+    lastUsed: Date.now(),
+    requestCount: 0
+  }
+  
+  userSessions.set(sessionToken, session)
+  
+  // Clean up old sessions periodically
+  if (userSessions.size > 1000) {
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000
+    for (const [token, session] of userSessions.entries()) {
+      if (session.lastUsed < cutoff) {
+        userSessions.delete(token)
+      }
+    }
+  }
+  
+  console.log(`Session created for extension ${extensionId}`)
+  
+  res.json({
+    sessionToken,
+    expiresIn: 24 * 60 * 60 // 24 hours in seconds
+  })
+})
+
+// Dwolla proxy endpoints
+app.post('/api/proxy/dwolla/customers/search', validateSession, async (req, res) => {
+  try {
+    const token = await getDwollaClientToken()
+    const { email, firstName, lastName, businessName, limit = 25, offset = 0 } = req.body
+    
+    // Build search parameters
+    const params = new URLSearchParams()
+    if (email) params.append('email', email)
+    if (firstName) params.append('firstName', firstName)
+    if (lastName) params.append('lastName', lastName)
+    if (businessName) params.append('businessName', businessName)
+    params.append('limit', limit.toString())
+    params.append('offset', offset.toString())
+    
+    const apiUrl = process.env.DWOLLA_ENVIRONMENT === 'production'
+      ? 'https://api.dwolla.com'
+      : 'https://api-sandbox.dwolla.com'
+    
+    console.log(`Dwolla proxy search for session ${req.session.extensionId}:`, { email, firstName, lastName, businessName })
+    
+    const response = await axios.get(
+      `${apiUrl}/customers?${params.toString()}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.dwolla.v1.hal+json'
+        }
+      }
+    )
+    
+    // Sanitize response - remove sensitive fields
+    if (response.data._embedded?.customers) {
+      response.data._embedded.customers = response.data._embedded.customers.map(customer => ({
+        id: customer.id,
+        firstName: customer.firstName,
+        lastName: customer.lastName,
+        email: customer.email,
+        businessName: customer.businessName,
+        type: customer.type,
+        status: customer.status,
+        created: customer.created,
+        _links: customer._links
+      }))
+    }
+    
+    res.json(response.data)
+  } catch (error) {
+    console.error('Dwolla proxy search error:', error.response?.data || error.message)
+    res.status(error.response?.status || 500).json({ 
+      error: 'Search failed',
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Unable to search customers'
+    })
+  }
+})
+
+app.get('/api/proxy/dwolla/customers/:id', validateSession, async (req, res) => {
+  try {
+    const token = await getDwollaClientToken()
+    const { id } = req.params
+    
+    const apiUrl = process.env.DWOLLA_ENVIRONMENT === 'production'
+      ? 'https://api.dwolla.com'
+      : 'https://api-sandbox.dwolla.com'
+    
+    console.log(`Dwolla proxy get customer ${id} for session ${req.session.extensionId}`)
+    
+    const response = await axios.get(
+      `${apiUrl}/customers/${id}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.dwolla.v1.hal+json'
+        }
+      }
+    )
+    
+    // Sanitize response - remove sensitive fields
+    const sanitized = {
+      id: response.data.id,
+      firstName: response.data.firstName,
+      lastName: response.data.lastName,
+      email: response.data.email,
+      businessName: response.data.businessName,
+      type: response.data.type,
+      status: response.data.status,
+      created: response.data.created,
+      address1: response.data.address1,
+      city: response.data.city,
+      state: response.data.state,
+      postalCode: response.data.postalCode,
+      _links: response.data._links
+    }
+    
+    res.json(sanitized)
+  } catch (error) {
+    console.error('Dwolla proxy get customer error:', error.response?.data || error.message)
+    res.status(error.response?.status || 500).json({ 
+      error: 'Failed to get customer',
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Unable to retrieve customer'
+    })
+  }
+})
+
+app.get('/api/proxy/dwolla/transfers/:id', validateSession, async (req, res) => {
+  try {
+    const token = await getDwollaClientToken()
+    const { id } = req.params
+    
+    const apiUrl = process.env.DWOLLA_ENVIRONMENT === 'production'
+      ? 'https://api.dwolla.com'
+      : 'https://api-sandbox.dwolla.com'
+    
+    console.log(`Dwolla proxy get transfer ${id} for session ${req.session.extensionId}`)
+    
+    const response = await axios.get(
+      `${apiUrl}/transfers/${id}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.dwolla.v1.hal+json'
+        }
+      }
+    )
+    
+    // Sanitize response
+    const sanitized = {
+      id: response.data.id,
+      status: response.data.status,
+      amount: response.data.amount,
+      created: response.data.created,
+      metadata: response.data.metadata,
+      clearing: response.data.clearing,
+      correlationId: response.data.correlationId,
+      _links: response.data._links
+    }
+    
+    res.json(sanitized)
+  } catch (error) {
+    console.error('Dwolla proxy get transfer error:', error.response?.data || error.message)
+    res.status(error.response?.status || 500).json({ 
+      error: 'Failed to get transfer',
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Unable to retrieve transfer'
+    })
+  }
+})
+
+// Get customer transfers
+app.get('/api/proxy/dwolla/customers/:id/transfers', validateSession, async (req, res) => {
+  try {
+    const token = await getDwollaClientToken()
+    const { id } = req.params
+    const { limit = '50', offset = '0' } = req.query
+    
+    const apiUrl = process.env.DWOLLA_ENVIRONMENT === 'production'
+      ? 'https://api.dwolla.com'
+      : 'https://api-sandbox.dwolla.com'
+    
+    console.log(`Dwolla proxy get transfers for customer ${id} for session ${req.session.extensionId}`)
+    
+    const response = await axios.get(
+      `${apiUrl}/customers/${id}/transfers?limit=${limit}&offset=${offset}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.dwolla.v1.hal+json'
+        }
+      }
+    )
+    
+    // Sanitize response - keep only necessary fields
+    if (response.data._embedded?.transfers) {
+      response.data._embedded.transfers = response.data._embedded.transfers.map(transfer => ({
+        id: transfer.id,
+        status: transfer.status,
+        amount: transfer.amount,
+        created: transfer.created,
+        metadata: transfer.metadata,
+        clearing: transfer.clearing,
+        correlationId: transfer.correlationId,
+        individualAchId: transfer.individualAchId,
+        _links: transfer._links
+      }))
+    }
+    
+    res.json(response.data)
+  } catch (error) {
+    console.error('Dwolla proxy get customer transfers error:', error.response?.data || error.message)
+    res.status(error.response?.status || 500).json({ 
+      error: 'Failed to get customer transfers',
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Unable to retrieve transfers'
+    })
+  }
+})
+
+// Get customer funding sources
+app.get('/api/proxy/dwolla/customers/:id/funding-sources', validateSession, async (req, res) => {
+  try {
+    const token = await getDwollaClientToken()
+    const { id } = req.params
+    
+    const apiUrl = process.env.DWOLLA_ENVIRONMENT === 'production'
+      ? 'https://api.dwolla.com'
+      : 'https://api-sandbox.dwolla.com'
+    
+    console.log(`Dwolla proxy get funding sources for customer ${id} for session ${req.session.extensionId}`)
+    
+    const response = await axios.get(
+      `${apiUrl}/customers/${id}/funding-sources`,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.dwolla.v1.hal+json'
+        }
+      }
+    )
+    
+    // Sanitize response - remove sensitive banking details
+    if (response.data._embedded?.['funding-sources']) {
+      response.data._embedded['funding-sources'] = response.data._embedded['funding-sources'].map(source => ({
+        id: source.id,
+        status: source.status,
+        type: source.type,
+        bankAccountType: source.bankAccountType,
+        name: source.name,
+        created: source.created,
+        balance: source.balance,
+        removed: source.removed,
+        channels: source.channels,
+        _links: source._links
+      }))
+    }
+    
+    res.json(response.data)
+  } catch (error) {
+    console.error('Dwolla proxy get funding sources error:', error.response?.data || error.message)
+    res.status(error.response?.status || 500).json({ 
+      error: 'Failed to get funding sources',
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Unable to retrieve funding sources'
+    })
+  }
+})
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ 
@@ -268,12 +646,18 @@ app.get('/health', (req, res) => {
 // Root endpoint for basic info
 app.get('/', (req, res) => {
   res.json({ 
-    service: 'OAuth Backend Service',
+    service: 'OAuth Backend Service with Dwolla Proxy',
     status: 'running',
     environment: process.env.NODE_ENV || 'development',
     endpoints: [
       'POST /api/oauth/exchange',
       'POST /api/oauth/refresh', 
+      'POST /api/session/create',
+      'POST /api/proxy/dwolla/customers/search',
+      'GET /api/proxy/dwolla/customers/:id',
+      'GET /api/proxy/dwolla/transfers/:id',
+      'GET /api/proxy/dwolla/customers/:id/transfers',
+      'GET /api/proxy/dwolla/customers/:id/funding-sources',
       'GET /health'
     ]
   })

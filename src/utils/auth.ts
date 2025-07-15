@@ -84,6 +84,11 @@ export async function getAccessToken(
   provider: 'hubspot' | 'dwolla'
 ): Promise<string | null> {
   try {
+    // For Dwolla, we don't need an access token since we use proxy
+    if (provider === 'dwolla') {
+      return 'proxy-authenticated' // Return a dummy token for compatibility
+    }
+
     const result = await chrome.storage.local.get(`${provider}_token`)
     const tokenData = result[`${provider}_token`] as StoredToken | undefined
 
@@ -162,11 +167,21 @@ export async function clearTokens(provider: 'hubspot' | 'dwolla'): Promise<void>
 export async function clearAllTokens(): Promise<void> {
   await clearTokens('hubspot')
   await clearTokens('dwolla')
+  
+  // Also clear Dwolla proxy session
+  const { dwollaProxy } = await import('../api/dwollaProxy')
+  dwollaProxy.clearSession()
 }
 
 // Check if user is authenticated with a provider
 export async function isAuthenticated(provider: 'hubspot' | 'dwolla'): Promise<boolean> {
   try {
+    // For Dwolla, we now use proxy authentication (no OAuth needed)
+    if (provider === 'dwolla') {
+      // Dwolla is always "authenticated" since we use proxy
+      return true
+    }
+
     // Check basic auth flag
     const result = await chrome.storage.local.get(`${provider}_authenticated`)
     if (!result[`${provider}_authenticated`]) {
@@ -222,25 +237,26 @@ export async function checkAuthStatus(): Promise<{
     ])
     
     const hubspotAuth = !!result.hubspot_authenticated
-    const dwollaAuth = !!result.dwolla_authenticated
+    // Dwolla is always authenticated with proxy
+    const dwollaAuth = true
 
     const requiresReauth: string[] = []
     if (!hubspotAuth) requiresReauth.push('hubspot')
-    if (!dwollaAuth) requiresReauth.push('dwolla')
+    // Dwolla never requires reauth with proxy
 
     return {
       hubspot: hubspotAuth,
       dwolla: dwollaAuth,
-      isFullyAuthenticated: hubspotAuth && dwollaAuth,
+      isFullyAuthenticated: hubspotAuth, // Only HubSpot auth matters now
       requiresReauth
     }
   } catch (error) {
     console.error('Error checking auth status:', error)
     return {
       hubspot: false,
-      dwolla: false,
+      dwolla: true, // Dwolla is always authenticated with proxy
       isFullyAuthenticated: false,
-      requiresReauth: ['hubspot', 'dwolla']
+      requiresReauth: ['hubspot']
     }
   }
 }

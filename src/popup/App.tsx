@@ -427,7 +427,7 @@ function App() {
       <div className="auth-container">
         <img src={logo} alt="Company Logo" className="auth-logo" />
         <h1>Unified Customer Dashboard</h1>
-        <p>Please authenticate with both services to continue:</p>
+        <p>Please authenticate with HubSpot to continue:</p>
         <div className="auth-buttons">
           <button 
             onClick={() => handleAuth('hubspot')} 
@@ -436,13 +436,9 @@ function App() {
           >
             {authStatus.hubspot ? '✓ HubSpot Connected' : 'Connect HubSpot'}
           </button>
-          <button 
-            onClick={() => handleAuth('dwolla')} 
-            className={`auth-button dwolla ${authStatus.dwolla ? 'authenticated' : ''}`}
-            disabled={authStatus.dwolla}
-          >
-            {authStatus.dwolla ? '✓ Dwolla Connected' : 'Connect Dwolla'}
-          </button>
+        </div>
+        <div className="auth-status-info">
+          <p className="dwolla-status">✓ Dwolla API: Connected via secure proxy</p>
         </div>
         {authStatus.requiresReauth.length > 0 && (
           <div className="warning">

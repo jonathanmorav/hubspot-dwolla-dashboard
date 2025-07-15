@@ -468,7 +468,9 @@ export class EnhancedHubSpotClient extends EnhancedApiClient {
   }
 }
 
-// Enhanced Dwolla Client
+// Enhanced Dwolla Client - Now uses proxy instead of direct OAuth
+import { dwollaProxy, DwollaProxyError } from '../api/dwollaProxy'
+
 export class EnhancedDwollaClient extends EnhancedApiClient {
   constructor() {
     const environment = env.VITE_DWOLLA_ENVIRONMENT || 'sandbox'
@@ -478,6 +480,89 @@ export class EnhancedDwollaClient extends EnhancedApiClient {
         : 'https://api-sandbox.dwolla.com',
       provider: 'dwolla'
     })
+  }
+
+  // Override the request method to use proxy
+  async request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
+    const requestId = generateRequestId()
+    const timer = logger.startTimer('dwolla_proxy_request')
+    
+    try {
+      // Check rate limit
+      if (!options.skipRateLimit) {
+        await rateLimiter.checkLimit(this.config.provider)
+      }
+
+      // Log the request
+      logger.info('Dwolla proxy request starting', {
+        requestId,
+        endpoint,
+        method: options.method || 'GET',
+        provider: this.config.provider
+      })
+
+      // Route to appropriate proxy method based on endpoint
+      let result: any
+      
+      // Parse the endpoint to determine which proxy method to call
+      if (endpoint.includes('/customers?email=')) {
+        const emailMatch = endpoint.match(/email=([^&]+)/)
+        const email = emailMatch ? decodeURIComponent(emailMatch[1]) : ''
+        result = await dwollaProxy.searchCustomers({ email, limit: 100 })
+      } else if (endpoint === '/customers?limit=200') {
+        // For name search, we get all customers
+        result = await dwollaProxy.searchCustomers({ limit: 200 })
+      } else if (endpoint.match(/^\/customers\/([^\/]+)\/transfers/)) {
+        const matches = endpoint.match(/^\/customers\/([^\/]+)\/transfers\?limit=(\d+)/)
+        const customerId = matches?.[1] || ''
+        const limit = matches?.[2] ? parseInt(matches[2]) : 50
+        result = await dwollaProxy.getCustomerTransfers(customerId, limit)
+      } else if (endpoint.match(/^\/transfers\/(.+)$/)) {
+        const transferId = endpoint.match(/^\/transfers\/(.+)$/)?.[1] || ''
+        result = await dwollaProxy.getTransfer(transferId)
+      } else {
+        throw new ApiError('Unsupported Dwolla endpoint for proxy', 400, 'UNSUPPORTED_ENDPOINT', 'dwolla')
+      }
+
+      const duration = timer.end()
+      
+      // Log success
+      logger.info('Dwolla proxy request completed', {
+        requestId,
+        endpoint,
+        method: options.method || 'GET',
+        duration: Math.round(duration),
+        provider: this.config.provider
+      })
+
+      // Log performance
+      await logger.logPerformance('dwolla_proxy_request', duration, {
+        endpoint,
+        provider: this.config.provider
+      })
+
+      return result as T
+
+    } catch (error) {
+      const duration = timer.end()
+      
+      // Convert DwollaProxyError to ApiError
+      if (error instanceof DwollaProxyError) {
+        throw new ApiError(error.message, error.status, error.code, 'dwolla')
+      }
+      
+      // Enhanced error logging
+      logger.error('Dwolla proxy request failed', error as Error, {
+        requestId,
+        endpoint,
+        method: options.method || 'GET',
+        provider: this.config.provider,
+        duration: Math.round(duration),
+        errorType: error instanceof RateLimitError ? 'rate_limit' : 'proxy_error'
+      })
+
+      throw error
+    }
   }
 
   async searchCustomers(email: string): Promise<DwollaCustomerSearchResponse> {

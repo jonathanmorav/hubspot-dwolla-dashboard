@@ -211,55 +211,18 @@ async function authenticateHubSpot() {
 }
 
 async function authenticateDwolla() {
-  // Import env config
-  const { env } = await import('../config/env')
+  // Dwolla now uses proxy authentication - no OAuth needed
+  // Simply mark as authenticated and return success
+  await chrome.storage.local.set({
+    'dwolla_authenticated': true,
+    'dwolla_last_auth': Date.now()
+  })
   
-  // Dwolla OAuth configuration
-  const clientId = env.VITE_DWOLLA_CLIENT_ID
+  // Import logger for tracking
+  const { logger } = await import('../utils/logger')
+  logger.info('Dwolla proxy authentication enabled')
   
-  if (!clientId) {
-    throw new Error('Dwolla client ID not configured. Please set VITE_DWOLLA_CLIENT_ID environment variable.')
-  }
-  
-  const redirectUri = chrome.identity.getRedirectURL()
-  const scope = 'Customers:read Transfers:read'
-  const environment = env.VITE_DWOLLA_ENVIRONMENT || 'sandbox'
-  
-  const authUrl = `https://accounts${environment === 'sandbox' ? '-sandbox' : ''}.dwolla.com/auth?` +
-    `client_id=${clientId}&` +
-    `redirect_uri=${encodeURIComponent(redirectUri)}&` +
-    `scope=${encodeURIComponent(scope)}&` +
-    `response_type=code`
-
-  try {
-    const responseUrl = await chrome.identity.launchWebAuthFlow({
-      url: authUrl,
-      interactive: true
-    })
-
-    if (!responseUrl) {
-      throw new Error('No response URL received')
-    }
-
-    // Extract authorization code from response
-    const url = new URL(responseUrl)
-    const code = url.searchParams.get('code')
-    
-    if (!code) {
-      throw new Error('No authorization code received')
-    }
-
-    // Import auth utility dynamically to avoid circular dependencies
-    const { exchangeCodeForToken } = await import('../utils/auth')
-    
-    // Exchange code for token via secure backend service
-    await exchangeCodeForToken(code, 'dwolla')
-    
-    return { success: true }
-  } catch (error) {
-    console.error('Dwolla auth error:', error)
-    throw error
-  }
+  return { success: true, message: 'Dwolla authentication via proxy is enabled' }
 }
 
 // Search handler with comprehensive logging
