@@ -162,18 +162,34 @@ async function exchangeHubSpotCode(code, redirect_uri) {
     codeLength: code?.length
   })
   
-  const response = await axios.post('https://api.hubapi.com/oauth/v1/token', payload)
+  const response = await axios.post('https://api.hubapi.com/oauth/v1/token', 
+    new URLSearchParams(payload),
+    {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      }
+    }
+  )
   
   return response.data
 }
 
 async function refreshHubSpotToken(refresh_token) {
-  const response = await axios.post('https://api.hubapi.com/oauth/v1/token', {
+  const payload = {
     grant_type: 'refresh_token',
     client_id: process.env.HUBSPOT_CLIENT_ID,
     client_secret: process.env.HUBSPOT_CLIENT_SECRET,
     refresh_token: refresh_token
-  })
+  }
+  
+  const response = await axios.post('https://api.hubapi.com/oauth/v1/token',
+    new URLSearchParams(payload),
+    {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      }
+    }
+  )
   
   return response.data
 }
