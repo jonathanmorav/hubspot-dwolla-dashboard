@@ -44,35 +44,40 @@ async function buildExtension() {
     execSync('./node_modules/.bin/vite build', { stdio: 'inherit', cwd: rootDir });
     console.log('✓ Main extension built\n');
     
-    // Step 3: Process and install custom service worker after main build
-    console.log('3. Installing custom service worker...');
+    // Step 3: Use the compiled service worker instead of custom one
+    console.log('3. Installing service worker...');
     
-    const customSwSource = path.join(rootDir, 'custom-service-worker.js');
-    const swDest = path.join(rootDir, 'dist', 'service-worker.js');
+    // Find the compiled service worker in dist/assets
+    const assetsDir = path.join(rootDir, 'dist', 'assets');
+    const assetFiles = fs.readdirSync(assetsDir);
+    const compiledSwFile = assetFiles.find(f => f.startsWith('service-worker-static.ts-') && f.endsWith('.js'));
     
-    if (!fs.existsSync(customSwSource)) {
-      console.error('✗ Custom service worker not found at custom-service-worker.js');
+    if (!compiledSwFile) {
+      console.error('✗ Compiled service worker not found');
       process.exit(1);
     }
     
-    // Read the service worker template
-    let swContent = fs.readFileSync(customSwSource, 'utf-8');
+    const swSource = path.join(assetsDir, compiledSwFile);
+    const swDest = path.join(rootDir, 'dist', 'service-worker.js');
     
-    // Replace environment variables in service worker
+    // Read the compiled service worker
+    let swContent = fs.readFileSync(swSource, 'utf-8');
+    
+    // Replace environment variables in compiled service worker
     const replacements = {
-      'VITE_HUBSPOT_CLIENT_ID': process.env.VITE_HUBSPOT_CLIENT_ID || '4e69a57d-eb8b-45ef-9088-c822b0eb4d08',
-      'VITE_DWOLLA_CLIENT_ID': process.env.VITE_DWOLLA_CLIENT_ID || 'aaEBh0JXyCHGdDT8sUvgQn3bWys61zdrXbCPcwU1WkhdMqMVZX',
-      'VITE_DWOLLA_ENVIRONMENT': process.env.VITE_DWOLLA_ENVIRONMENT || 'sandbox',
-      'VITE_BACKEND_API_URL': process.env.VITE_BACKEND_API_URL || 'http://localhost:3001',
-      'VITE_API_KEY': process.env.VITE_API_KEY || 'development-key'
+      'import.meta.env.VITE_HUBSPOT_CLIENT_ID': `"${process.env.VITE_HUBSPOT_CLIENT_ID || '4e69a57d-eb8b-45ef-9088-c822b0eb4d08'}"`,
+      'import.meta.env.VITE_DWOLLA_CLIENT_ID': `"${process.env.VITE_DWOLLA_CLIENT_ID || 'aaEBh0JXyCHGdDT8sUvgQn3bWys61zdrXbCPcwU1WkhdMqMVZX'}"`,
+      'import.meta.env.VITE_DWOLLA_ENVIRONMENT': `"${process.env.VITE_DWOLLA_ENVIRONMENT || 'sandbox'}"`,
+      'import.meta.env.VITE_BACKEND_API_URL': `"${process.env.VITE_BACKEND_API_URL || 'http://localhost:3001'}"`,
+      'import.meta.env.VITE_API_KEY': `"${process.env.VITE_API_KEY || 'development-key'}"`
     };
     
-    // Replace placeholder values with actual environment values using regex
+    // Replace environment variables in the compiled code
     Object.entries(replacements).forEach(([key, value]) => {
-      const regex = new RegExp(`const ${key} = '[^']*';`, 'g');
-      const replacement = `const ${key} = '${value}';`;
-      swContent = swContent.replace(regex, replacement);
-      console.log(`  - ${key}: ${value}`);
+      const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(escapedKey, 'g');
+      swContent = swContent.replace(regex, value);
+      console.log(`  - ${key.replace('import.meta.env.', '')}: ${value.slice(1, -1)}`);
     });
     
     // Write the processed service worker

@@ -19,7 +19,7 @@ import './App.css'
 function App() {
   const [authStatus, setAuthStatus] = useState({
     hubspot: false,
-    dwolla: false,
+    dwolla: true, // Dwolla is always authenticated via proxy
     isFullyAuthenticated: false,
     requiresReauth: [] as string[]
   })
@@ -57,9 +57,9 @@ function App() {
         // Session expired, clear auth and show login
         setAuthStatus({
           hubspot: false,
-          dwolla: false,
+          dwolla: true, // Dwolla is always authenticated via proxy
           isFullyAuthenticated: false,
-          requiresReauth: ['hubspot', 'dwolla']
+          requiresReauth: ['hubspot'] // Only HubSpot needs reauth
         })
         setAuthLoading(false)
         return
@@ -115,9 +115,9 @@ function App() {
         console.log('Session expired')
         setAuthStatus({
           hubspot: false,
-          dwolla: false,
+          dwolla: true, // Dwolla is always authenticated via proxy
           isFullyAuthenticated: false,
-          requiresReauth: ['hubspot', 'dwolla']
+          requiresReauth: ['hubspot'] // Only HubSpot needs reauth
         })
         setError('Your session has expired. Please log in again.')
       }
@@ -127,11 +127,20 @@ function App() {
     const handleStorageChange = (changes: any, area: string) => {
       if (area === 'local') {
         const hasAuthChange = Object.keys(changes).some(key => 
-          key.endsWith('_authenticated')
+          key.endsWith('_authenticated') || key.endsWith('_token')
         )
         if (hasAuthChange) {
-          console.log('Storage auth state changed')
+          console.log('Storage auth state changed:', changes)
+          // Force immediate update
           checkAuth()
+          // Also force a re-render by updating local state directly
+          if (changes.hubspot_authenticated?.newValue === true) {
+            setAuthStatus(prev => ({
+              ...prev,
+              hubspot: true,
+              isFullyAuthenticated: true
+            }))
+          }
         }
       }
     }
@@ -151,11 +160,21 @@ function App() {
       checkAuth()
     }, 100)
     
+    // Check auth every second for the first 5 seconds to catch OAuth completion
+    const intervals: number[] = []
+    for (let i = 1; i <= 5; i++) {
+      intervals.push(setTimeout(() => {
+        console.log(`Auth check ${i}/5`)
+        checkAuth()
+      }, i * 1000))
+    }
+    
     return () => {
       chrome.runtime.onMessage.removeListener(handleMessage)
       chrome.storage.onChanged.removeListener(handleStorageChange)
       window.removeEventListener('focus', handleFocus)
       clearTimeout(timer)
+      intervals.forEach(clearTimeout)
     }
   }, [checkAuth])
 
@@ -189,11 +208,20 @@ function App() {
     try {
       logger.info('Performing search', { query: sanitized, type: queryType.type })
       
-      const response = await sendMessage<any>({
-        type: 'SEARCH_CUSTOMER',
-        query: sanitized,
-        queryType: queryType.type
-      }, { timeout: 30000 })
+      // Try service worker first, fall back to direct search
+      let response
+      try {
+        response = await sendMessage<any>({
+          type: 'SEARCH_CUSTOMER',
+          query: sanitized,
+          queryType: queryType.type
+        }, { timeout: 10000 }) // Reduced timeout to fail faster
+      } catch (swError) {
+        logger.warn('Service worker timeout, using direct search', swError as Error)
+        // Import dynamically to avoid loading unless needed
+        const { performDirectSearch } = await import('../utils/directSearch')
+        response = await performDirectSearch(sanitized)
+      }
       
       if (response.error) {
         setError(response.error)
@@ -385,7 +413,8 @@ function App() {
         setAuthStatus(prev => ({
           ...prev,
           [provider]: true,
-          isFullyAuthenticated: provider === 'hubspot' ? prev.dwolla : prev.hubspot
+          // Since Dwolla is always authenticated via proxy, isFullyAuthenticated is true when HubSpot is authenticated
+          isFullyAuthenticated: provider === 'hubspot' ? true : prev.hubspot
         }))
         // Then do a full check to ensure consistency
         setTimeout(() => checkAuth(), 500)
